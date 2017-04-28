@@ -1,0 +1,10 @@
+[package]
+name = "gdnative-api-generator"
+version = "0.1.0"
+authors = ["Max Sandholm <max@sandholm.org>"]
+
+[dependencies]
+serde = "0.9.14"
+serde_derive = "0.9.14"
+serde_json = "0.9.10"
+quote = "0.3.15"

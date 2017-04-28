@@ -1,0 +1,6 @@
+[package]
+name = "gdnative-api"
+version = "0.1.0"
+authors = ["Max Sandholm <max@sandholm.org>"]
+
+[dependencies]

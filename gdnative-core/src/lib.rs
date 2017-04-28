@@ -45,7 +45,7 @@ pub trait GodotObjectRegisterMethods {
   fn register_methods();
 }
 
-pub unsafe fn register_godot_class<T: GodotObject>(class_name: &str, derives: &str) -> Result<(),()> {
+pub unsafe fn register_godot_class<T: GodotObject>(class_name: &str, derives: &str) {
   gdnative_sys::godot_script_register_class(CString::new(class_name).unwrap().as_ptr(), CString::new(derives).unwrap().as_ptr(), 
                                             gdnative_sys::godot_instance_create_func{
                                               create_func: Some(T::_new),
@@ -57,7 +57,6 @@ pub unsafe fn register_godot_class<T: GodotObject>(class_name: &str, derives: &s
                                               method_data: std::ptr::null_mut(),
                                               free_func: None
                                             });
-  Ok(())
 }
 
 #[macro_export]
@@ -65,9 +64,10 @@ macro_rules! generate_gdnative_init {
   ( $($t:ident),* ) => {
     #[no_mangle]
     pub unsafe extern "C" fn godot_native_init(options: *mut gdnative_sys::godot_native_init_options) {
-      use godot::GodotObjectRegisterMethods;
+      use gdnative_core;
+      use gdnative_core::GodotObjectRegisterMethods;
       $(
-        godot::register_godot_class::<$t>(stringify!($t), "Node").unwrap(); //TODO: derives from type
+        gdnative_core::register_godot_class::<$t>(stringify!($t), "Node").unwrap(); //TODO: derives from type
         $t::register_methods();
       )*
     }
