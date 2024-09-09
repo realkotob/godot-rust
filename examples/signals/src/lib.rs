@@ -12,21 +12,13 @@ struct SignalEmitter {
 #[methods]
 impl SignalEmitter {
     fn register_signals(builder: &ClassBuilder<Self>) {
-        builder.add_signal(Signal {
-            name: "tick",
-            args: &[],
-        });
+        builder.signal("tick").done();
 
-        builder.add_signal(Signal {
-            name: "tick_with_data",
+        builder
+            .signal("tick_with_data")
             // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_i64(100),
-                export_info: ExportInfo::new(VariantType::I64),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
+            .with_param_default("data", Variant::new(100))
+            .done();
     }
 
     fn new(_owner: &Node) -> Self {
@@ -36,8 +28,8 @@ impl SignalEmitter {
         }
     }
 
-    #[export]
-    fn _process(&mut self, owner: &Node, delta: f64) {
+    #[method]
+    fn _process(&mut self, #[base] owner: &Node, delta: f64) {
         if self.timer < 1.0 {
             self.timer += delta;
             return;
@@ -48,7 +40,7 @@ impl SignalEmitter {
         if self.data % 2 == 0 {
             owner.emit_signal("tick", &[]);
         } else {
-            owner.emit_signal("tick_with_data", &[Variant::from_i64(self.data)]);
+            owner.emit_signal("tick_with_data", &[Variant::new(self.data)]);
         }
     }
 }
@@ -65,8 +57,8 @@ impl SignalSubscriber {
         SignalSubscriber { times_received: 0 }
     }
 
-    #[export]
-    fn _ready(&mut self, owner: TRef<Label>) {
+    #[method]
+    fn _ready(&mut self, #[base] owner: TRef<Label>) {
         let emitter = &mut owner.get_node("../SignalEmitter").unwrap();
         let emitter = unsafe { emitter.assume_safe() };
 
@@ -84,28 +76,31 @@ impl SignalSubscriber {
             .unwrap();
     }
 
-    #[export]
-    fn notify(&mut self, owner: &Label) {
+    #[method]
+    fn notify(&mut self, #[base] owner: &Label) {
         self.times_received += 1;
         let msg = format!("Received signal \"tick\" {} times", self.times_received);
 
         owner.set_text(msg);
     }
 
-    #[export]
-    fn notify_with_data(&mut self, owner: &Label, data: Variant) {
+    #[method]
+    fn notify_with_data(&mut self, #[base] owner: &Label, data: Variant) {
         let msg = format!(
             "Received signal \"tick_with_data\" with data {}",
-            data.try_to_u64().unwrap()
+            data.try_to::<u64>().unwrap()
         );
 
         owner.set_text(msg);
     }
 }
 
-fn init(handle: InitHandle) {
-    handle.add_class::<SignalEmitter>();
-    handle.add_class::<SignalSubscriber>();
-}
+struct SignalLibrary;
 
-godot_init!(init);
+#[gdnative::init::callbacks]
+impl GDNativeCallbacks for SignalLibrary {
+    fn nativescript_init(handle: InitHandle) {
+        handle.add_class::<SignalEmitter>();
+        handle.add_class::<SignalSubscriber>();
+    }
+}

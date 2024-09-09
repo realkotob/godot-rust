@@ -2,68 +2,95 @@
 
 <a href="https://godot-rust.github.io/"><img align="right" width="200" height="200" src="assets/godot-ferris.svg"></a>
 
-[![Docs Status](https://docs.rs/gdnative/badge.svg)](https://docs.rs/gdnative)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/gdnative?logo=rust&color=A6854D" />](https://crates.io/crates/gdnative)
+[<img alt="stable docs" src="https://img.shields.io/badge/docs-released-4D8AA6?&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" />](https://docs.rs/gdnative)
+[<img alt="master docs" src="https://img.shields.io/badge/docs-master-4D8AA6?&logo=data:image/svg+xml;base64,PHN2ZyByb2xlPSJpbWciIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgdmlld0JveD0iMCAwIDUxMiA1MTIiPjxwYXRoIGZpbGw9IiNmNWY1ZjUiIGQ9Ik00ODguNiAyNTAuMkwzOTIgMjE0VjEwNS41YzAtMTUtOS4zLTI4LjQtMjMuNC0zMy43bC0xMDAtMzcuNWMtOC4xLTMuMS0xNy4xLTMuMS0yNS4zIDBsLTEwMCAzNy41Yy0xNC4xIDUuMy0yMy40IDE4LjctMjMuNCAzMy43VjIxNGwtOTYuNiAzNi4yQzkuMyAyNTUuNSAwIDI2OC45IDAgMjgzLjlWMzk0YzAgMTMuNiA3LjcgMjYuMSAxOS45IDMyLjJsMTAwIDUwYzEwLjEgNS4xIDIyLjEgNS4xIDMyLjIgMGwxMDMuOS01MiAxMDMuOSA1MmMxMC4xIDUuMSAyMi4xIDUuMSAzMi4yIDBsMTAwLTUwYzEyLjItNi4xIDE5LjktMTguNiAxOS45LTMyLjJWMjgzLjljMC0xNS05LjMtMjguNC0yMy40LTMzLjd6TTM1OCAyMTQuOGwtODUgMzEuOXYtNjguMmw4NS0zN3Y3My4zek0xNTQgMTA0LjFsMTAyLTM4LjIgMTAyIDM4LjJ2LjZsLTEwMiA0MS40LTEwMi00MS40di0uNnptODQgMjkxLjFsLTg1IDQyLjV2LTc5LjFsODUtMzguOHY3NS40em0wLTExMmwtMTAyIDQxLjQtMTAyLTQxLjR2LS42bDEwMi0zOC4yIDEwMiAzOC4ydi42em0yNDAgMTEybC04NSA0Mi41di03OS4xbDg1LTM4Ljh2NzUuNHptMC0xMTJsLTEwMiA0MS40LTEwMi00MS40di0uNmwxMDItMzguMiAxMDIgMzguMnYuNnoiPjwvcGF0aD48L3N2Zz4K" />](https://godot-rust.github.io/docs)
+[<img alt="book" src="https://img.shields.io/badge/user_guide-book-3e6ccf?&logo=read-the-docs&logoColor=white" />](https://godot-rust.github.io/book)
+[<img alt="website" src="https://img.shields.io/badge/website-3e6ccf?&color=gray" />](https://godot-rust.github.io)
 
-Rust bindings to the [Godot game engine](http://godotengine.org/).
+**godot-rust** is a Rust library that implements native bindings for the [Godot game engine](http://godotengine.org/). This allows you to develop games or other applications in Godot, while benefiting from Rust's strengths, such as its type system, scalability and performance.
 
-**[Website](https://godot-rust.github.io/)** |
-**[User Guide](https://godot-rust.github.io/book/)** | **[API Documentation](https://docs.rs/gdnative/0.9.3/gdnative/)**
+> **Note**: if you are looking for a Rust binding for GDExtension (Godot 4), checkout [`gdext`](https://github.com/godot-rust/gdext).
 
-## Stability
+## Maintenance Policy
 
-The bindings cover most of the exposed API of Godot 3.2, and are being used on a number of projects in development, but we still expect non-trivial breaking changes in the API in the coming releases.
+> [!Important]  
+> At the moment, `gdnative` is no longer actively maintained. Almost all development resources from the godot-rust project are invested in
+> [`gdext`](https://github.com/godot-rust/gdext), which still requires a ton of work. If you are interested in assisting with `gdnative`
+> maintenance, please contact us via e-mail or on Discord.
 
-## Engine compatibility
+`gdnative` is considered mostly feature complete, and lies a focus on API stability. We try to avoid unnecessary breaking changes, and try to limit their end-user impact to a minimum whenever we have to make them. No large-scale features are planned anymore.
 
-We are serious about engine compatibility. We are committed to keeping compatibility with the latest stable patch releases of all minor versions of the engine, starting from Godot 3.2.
+We adhere to [Cargo's semantic versioning](https://doc.rust-lang.org/cargo/reference/semver.html) as the means to convey changes in the public API between versions. Future releases are planned publicly on GitHub, with the [milestone](https://github.com/godot-rust/gdnative/milestones) feature. Note that we use the `breaking-change` label to indicate the existence of *any* technical breakage, regardless of the expected impact on end user programs.
 
-The current minimum compatible version, with `api.json` replacement, is Godot 3.2-stable. Changes to this will be considered a breaking change, and will be called out in the release notes.
+If you are looking to contribute, but are not sure if what you want to do falls in the scope of the project and is permitted by our maintenance policy, feel free to [get in touch](CONTRIBUTING.md#communication) with the project maintainers before you start.
 
-The bindings do *not* support Godot 4.0 (`master` branch) currently.
+## Toolchain compatibility
 
-## Requirements
+`gdnative` currently has a minimum supported Rust version (MSRV) of **1.70**. We use the Rust 2021 Edition.
 
-The generator makes use of `bindgen`, which depends on Clang. Instructions for installing `bindgen`'s dependencies for popular OSes can be found in their documentation: https://rust-lang.github.io/rust-bindgen/requirements.html.
+> **Warning**: **Linux users: Be aware of the source of your Godot binary!** Binary distributions of Godot using a container-based format may ship versions of dependencies that may not be compatible with GDNative libraries built directly from your base system. Examples of such formats include **Flatpak**, **Snap**, and **AppImage**.
+>
+> As of 2023, some package managers might silently install one of these instead of a normal package when Godot is requested, which can then cause bizarre compatibility issues with your GDNative libraries. We recommend using the official binaries from [godotengine.org](https://godotengine.org/download/3.x/linux) for both the editor and the export templates.
 
-`bindgen` may complain about a missing `llvm-config` binary, but it is not actually required to build the `gdnative` crate. If you see a warning about `llvm-config` and a failed build, it's likely that you're having a different problem!
+Due to GDNative API not strictly following SemVer and some concepts not mapping 1:1 to Rust (default parameters),
+it is difficult for a godot-rust version to remain compatible with multiple Godot versions simultaneously.
 
-### 'Header not found' errors
+However, we support the latest stable Godot 3 minor release out-of-the-box, and allow to easily use custom engine
+versions using the `custom-godot` feature flag (see [below](#custom-builds)).
 
-When building the library, `bindgen` may produce errors that look like this:
+Compatibility list:
 
-```
-godot-rust\gdnative-sys/godot_headers\gdnative/string.h:39:10: fatal error: 'wchar.h' file not found
-```
+* Godot 3.5.1 (works with gdnative 0.11)
+* Godot 3.4 (works with gdnative 0.10, custom build for 0.11)
+* Godot 3.3 (custom build)
+* Godot 3.2 (custom build)
 
-This means that `bindgen` was unable to find the C system headers for your platform. If you can locate the headers manually, you may try setting the `C_INCLUDE_PATH` environment variable so `libclang` could find them. If on Windows, you may try building from the Visual Studio "developer console", which should setup the appropriate variables for you.
+The bindings do _**not**_ support Godot 4. If you are looking for a Rust binding for GDExtension (Godot 4), checkout [`gdextension`](https://github.com/godot-rust/gdextension).
 
-## Usage
+## Getting started
 
-### Godot 3.2.3-stable
+Detailed setup is explained in [the _Getting Started_ section of the book](https://godot-rust.github.io/book/getting-started.html). In case of problems, consider also reading the [FAQ](https://godot-rust.github.io/book/faq/configuration.html).
 
-After `bindgen` dependencies are installed, add the `gdnative` crate as a dependency, and set the crate type to `cdylib`:
+### Latest released version
+
+This is the recommended way of using godot-rust. After `bindgen` dependencies and a current Godot version are installed, add the `gdnative` crate as a dependency, and set the crate type to `cdylib`:
 
 ```toml
 [dependencies]
-gdnative = "0.9.3"
+gdnative = "0.11"
 
 [lib]
 crate-type = ["cdylib"]
 ```
 
-### Other versions or custom builds
+### Latest GitHub version
 
-The bindings are currently generated from the API description of Godot 3.2.3-stable by default. To use the bindings with another version or a custom build, see [Using custom builds of Godot](https://godot-rust.github.io/book/advanced-guides/custom-bindings.html) in the user guide.
+If you would like to benefit from cutting-edge features and bugfixes, you can use the GitHub version. We have a relatively sophisticated CI and test suite for basic stability, but the GitHub version is typically more experimental and less battle-tested than a `crates.io` release. We also do not guarantee any SemVer compatibility here.
+
+```toml
+[dependencies]
+gdnative = { git = "https://github.com/godot-rust/godot-rust.git" }
+
+[lib]
+crate-type = ["cdylib"]
+```
+
+### Custom builds
+
+To use the bindings with a different Godot version or a custom build of the engine, see
+[Custom Godot builds](https://godot-rust.github.io/book/advanced-guides/custom-godot.html) in the user guide.
+
+### Async/yield support
+
+Async support is a work-in-progress, with a low-level API available in `gdnative::tasks`, if the `async` feature is enabled on `gdnative`. See [this page](https://godot-rust.github.io/book/recipes/async-tokio.html) in the book for an introduction to use the async feature with Tokio.
+
 
 ## Example
 
-The most general use-case of the bindings will be to interact with Godot using the generated wrapper
-classes, as well as providing custom functionality by exposing Rust types as *NativeScript*s.
+A typical use case is to expose your own _Native Class_, a Rust API that can be invoked from the Godot engine. The resulting native script can be attached to the scene tree, just like GDScript (`.gd` files). 
 
-NativeScript is an extension for GDNative that allows a dynamic library to register "script classes"
-to Godot.
-
-As is tradition, a simple "Hello World" should serve as an introduction. For a full tutorial, check out ["Getting Started" from the user guide](https://godot-rust.github.io/book/getting-started.html)!
+This happens via dynamic libraries and the _GDNative interface_, which will be loaded from Godot. The necessary wiring is done behind the scenes by godot-rust. A simple "Hello world" application could look like this:
 
 ```rust
 use gdnative::prelude::*;
@@ -74,13 +101,13 @@ pub struct HelloWorld;
 
 #[methods]
 impl HelloWorld {
-    fn new(_owner: &Node) -> Self {
+    fn new(_base: &Node) -> Self {
         HelloWorld
     }
 
-    #[export]
-    fn _ready(&self, _owner: &Node) {
-        godot_print!("hello, world.");
+    #[method]
+    fn _ready(&self, #[base] _base: &Node) {
+        godot_print!("Hello, world.");
     }
 }
 
@@ -93,42 +120,34 @@ godot_init!(init);
 
 ### Further examples
 
-
-> ### **IMPORTANT NOTE**
+> **Important note:**
 >
-> Before launching the examples in the godot editor, you must first run `cargo build` and wait for the build operations to finish successfully.
->
->At startup, the Godot editor tries to load all resources used by the project, including the native binary. If it isn't present, the editor skips properties or signals associated with the missing NativeScripts in the scene. This will cause the scene tree to be non-functional for any sample that relies on properties or signals configured in the editor.
+> To run or edit an example, you need to build the native library for it first. Otherwise, the project will be broken. You can do so manually with `cargo build`, or use the `example.sh` shell script for convenience: `./example.sh run hello-world` or `./example.sh edit hello-world` for the editor.
 
 The [/examples](https://github.com/godot-rust/godot-rust/tree/master/examples) directory contains several ready to use examples, complete with Godot projects and setup for easy compilation from Cargo:
 
-- [/examples/hello_world](https://github.com/godot-rust/godot-rust/tree/master/examples/hello_world) - Your first project, writes to the console
-- [/examples/spinning_cube/](https://github.com/godot-rust/godot-rust/tree/master/examples/spinning_cube) - Spinning our own node in place, exposing editor properties.
-- [/examples/scene_create](https://github.com/godot-rust/godot-rust/tree/master/examples/scene_create) - Shows you how to load, instance and place scenes using Rust code
-- [/examples/signals](https://github.com/godot-rust/godot-rust/tree/master/examples/signals) - Shows you how to handle signals.
-- [/examples/resource](https://github.com/godot-rust/godot-rust/tree/master/examples/resource) - Shows you how to create and use custom resources.
-- [/examples/native_plugin](https://github.com/godot-rust/godot-rust/tree/master/examples/native_plugin) - Shows you how to create custom node plugins.
+- [**hello-world**](https://github.com/godot-rust/godot-rust/tree/master/examples/hello-world) - Your first project, writes to the console.
+- [**spinning-cube**](https://github.com/godot-rust/godot-rust/tree/master/examples/spinning-cube) - Spin our own node in place, exposing editor properties.
+- [**scene-create**](https://github.com/godot-rust/godot-rust/tree/master/examples/scene-create) - Load, instance and place scenes using Rust code.
+- [**builder-export**](https://github.com/godot-rust/godot-rust/tree/master/examples/builder-export) - Export using the builder API.
+- [**property-export**](https://github.com/godot-rust/godot-rust/tree/master/examples/property-export) - Export complex properties such as collections.
+- [**dodge-the-creeps**](https://github.com/godot-rust/godot-rust/tree/master/examples/dodge-the-creeps) - A Rust port of the [little Godot game](https://docs.godotengine.org/en/stable/getting_started/step_by_step/your_first_game.html).
+- [**signals**](https://github.com/godot-rust/godot-rust/tree/master/examples/signals) - Connect and emit signals.
+- [**resource**](https://github.com/godot-rust/godot-rust/tree/master/examples/resource) - Create and use custom resources.
+- [**rpc**](https://github.com/godot-rust/godot-rust/tree/master/examples/rpc) - Simple peer-to-peer networking.
+- [**native-plugin**](https://github.com/godot-rust/godot-rust/tree/master/examples/native-plugin) - Create custom node plugins.
 
-## Third-party resources
+At startup, the Godot editor tries to load all resources used by the project, including the native library. If the latter isn't present, the editor will skip properties or signals associated with the missing native scripts in the scene. This causes the scene tree to be non-functional for any sample that relies on properties or signals configured in the editor.
+### Third-party projects
 
-### Tutorials
+To see a list of games and integrations developed on top of godot-rust, have a look at our list of [third-party projects](https://godot-rust.github.io/book/projects.html) in the book.
 
-- Step by step guide - [Up and running with Rust and Godot: A basic setup](https://hagsteel.com/posts/godot-rust/)
-
-### Open-source projects
-
-- Pong - https://github.com/you-win/godot-pong-rust
-- Air Combat - https://github.com/paytonrules/AirCombat - This [Godot Tutorial](https://devga.me/tutorials/godot2d/) ported to Rust.
-- Action RPG - https://github.com/MacKarp/Rust_Action_RPG_Tutorial - This [Godot Tutorial](https://www.youtube.com/playlist?list=PL9FzW-m48fn2SlrW0KoLT4n5egNdX-W9a) ported to Rust.
-- Simple Single-Player Blackjack - https://github.com/paytonrules/Blackjack
-
-### Tools
-- ftw - https://github.com/macalimlim/ftw - manage your godot-rust projects!
 
 ## Contributing
 
-See the [contribution guidelines](CONTRIBUTING.md)
+See the [contribution guidelines](CONTRIBUTING.md).
+
 
 ## License
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you shall be licensed under the [MIT license](LICENSE.md), without any additional terms or conditions.
+Any contribution submitted for inclusion in the work by you shall be licensed under the [MIT license](LICENSE.md), without any additional terms or conditions.

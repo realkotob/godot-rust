@@ -17,8 +17,8 @@ impl ServerPuppet {
         Self
     }
 
-    #[export]
-    fn _ready(&mut self, owner: TRef<Node>) {
+    #[method]
+    fn _ready(&mut self, #[base] owner: TRef<Node>) {
         let peer = NetworkedMultiplayerENet::new();
         peer.create_client(
             GodotString::from(ADDRESS),
@@ -44,13 +44,14 @@ impl ServerPuppet {
         .unwrap();
     }
 
-    #[export]
-    fn on_connected_to_server(&mut self, owner: TRef<Node>) {
-        owner.rpc("greet_server", &[Variant::from_str("hello")]);
+    #[method]
+    fn on_connected_to_server(&mut self, #[base] owner: TRef<Node>) {
+        owner.rpc("greet_server", &[Variant::new("hello")]);
+        owner.rset("foo", 42);
     }
 
-    #[export(rpc = "puppet")]
-    fn return_greeting(&mut self, _owner: &Node, msg: GodotString) {
+    #[method(rpc = "puppet")]
+    fn return_greeting(&mut self, msg: GodotString) {
         godot_print!("Server says: {}", msg);
     }
 }

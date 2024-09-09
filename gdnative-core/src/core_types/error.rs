@@ -1,8 +1,11 @@
 use crate::sys;
 
 /// Error codes used in various Godot APIs.
+#[allow(clippy::unnecessary_cast)] // False positives: casts necessary for cross-platform
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u32)]
+#[non_exhaustive]
 pub enum GodotError {
     Failed = sys::godot_error_GODOT_FAILED as u32,
     Unavailable = sys::godot_error_GODOT_ERR_UNAVAILABLE as u32,
@@ -64,6 +67,7 @@ impl GodotError {
     /// `err` should be a valid value for `GodotError`.
     #[inline]
     #[doc(hidden)]
+    #[allow(clippy::unnecessary_cast)] // False positives: casts necessary for cross-platform
     pub unsafe fn result_from_sys(err: sys::godot_error) -> Result<(), Self> {
         if err == sys::godot_error_GODOT_OK {
             return Ok(());
@@ -76,8 +80,11 @@ impl GodotError {
 impl std::fmt::Display for GodotError {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Godot API error: {:?}", self)
+        write!(f, "Godot API error: {self:?}")
     }
 }
 
 impl std::error::Error for GodotError {}
+
+/// Result type with [GodotError]
+pub type GodotResult = Result<(), GodotError>;

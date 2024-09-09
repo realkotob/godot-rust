@@ -1,55 +1,40 @@
-//! Types that represent core-datatypes of Godot.
+//! Types that represent [core types](https://docs.godotengine.org/en/stable/development/cpp/core_types.html) of Godot.
+//!
+//! In contrast to generated Godot class types from the `api` module, the types in here are hand-written in idiomatic Rust and
+//! are the counterparts to built-in types in GDScript.
+//!
+//! godot-rust provides optional serialization support for many core types.  Enable the feature `serde` to make use of it.
 
-mod geom;
-
-mod access;
-mod byte_array;
 mod color;
-mod color_array;
-mod float32_array;
-mod int32_array;
+mod error;
 mod node_path;
-mod quat;
-mod rect2;
+mod pool_array;
 mod rid;
-mod string;
-mod string_array;
-mod transform2d;
-mod typed_array;
-mod variant;
-mod variant_array;
 mod vector2;
-mod vector2_array;
-mod vector3_array;
+mod vector3;
 
+pub mod access;
+pub mod array;
 pub mod dictionary;
-pub mod error;
-pub mod vector3;
+pub mod geom;
+pub mod string;
+pub mod variant;
 
-pub use geom::*;
-
-pub use access::*;
-pub use byte_array::*;
-pub use color::*;
-pub use color_array::*;
+pub use array::VariantArray;
+pub use color::Color;
 pub use dictionary::Dictionary;
-pub use error::GodotError;
-pub use float32_array::*;
-pub use int32_array::*;
-pub use node_path::*;
-pub use quat::*;
-pub use rect2::*;
-pub use rid::*;
-pub use string::*;
-pub use string_array::*;
-pub use transform2d::*;
-pub use typed_array::TypedArray;
-pub use variant::*;
-pub use variant_array::*;
-pub use vector2::*;
-pub use vector2_array::*;
-pub use vector3::*;
-pub use vector3_array::*;
+pub use error::{GodotError, GodotResult};
+pub use geom::{Aabb, Basis, Margin, MarginError, Plane, Quat, Rect2, Transform, Transform2D};
+pub use node_path::NodePath;
+pub use pool_array::{PoolArray, PoolElement};
+pub use rid::Rid;
+pub use string::{GodotString, StringName};
+pub use variant::{
+    CoerceFromVariant, FromVariant, FromVariantError, OwnedToVariant, ToVariant, ToVariantEq,
+    Variant, VariantType,
+};
+pub use vector2::Vector2;
+pub use vector3::{Axis, Vector3};
 
 use approx::relative_eq;
 
@@ -71,4 +56,50 @@ impl IsEqualApprox for f64 {
     fn is_equal_approx(self, to: Self) -> bool {
         relative_eq!(self, to, epsilon = CMP_EPSILON)
     }
+}
+
+#[cfg(feature = "gd-test")]
+#[doc(hidden)]
+#[inline]
+#[must_use]
+pub fn test_core_types() -> bool {
+    let mut status = true;
+
+    status &= string::test_string();
+    status &= string::test_string_name_eq();
+    status &= string::test_string_name_ord();
+
+    status &= array::test_array();
+    status &= array::test_array_debug();
+    status &= array::test_array_clone_clear();
+    status &= dictionary::test_dictionary();
+    status &= dictionary::test_dictionary_clone_clear();
+
+    status &= color::test_color();
+    status &= vector2::test_vector2_variants();
+    status &= vector3::test_vector3_variants();
+
+    status &= variant::test_variant_nil();
+    status &= variant::test_variant_i64();
+    status &= variant::test_variant_bool();
+    status &= variant::test_variant_option();
+    status &= variant::test_variant_result();
+    status &= variant::test_variant_hash_map();
+    status &= variant::test_variant_hash_set();
+    status &= variant::test_variant_vec();
+    status &= variant::test_to_variant_iter();
+    status &= variant::test_variant_tuple();
+    status &= variant::test_variant_dispatch();
+
+    status &= pool_array::test_byte_array_access();
+    status &= pool_array::test_int32_array_access();
+    status &= pool_array::test_float32_array_access();
+    status &= pool_array::test_color_array_access();
+    status &= pool_array::test_string_array_access();
+    status &= pool_array::test_vector2_array_access();
+    status &= pool_array::test_vector3_array_access();
+
+    status &= geom::test_transform2d_behavior();
+
+    status
 }

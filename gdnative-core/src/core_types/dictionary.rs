@@ -1,21 +1,14 @@
 use std::iter::{Extend, FromIterator};
 use std::marker::PhantomData;
 
-use gdnative_impl_proc_macros::doc_variant_collection_safety;
-
-use crate::core_types::GodotString;
 use crate::private::get_api;
 use crate::sys;
 
-use crate::core_types::OwnedToVariant;
-use crate::core_types::ToVariant;
-use crate::core_types::ToVariantEq;
-use crate::core_types::Variant;
-use crate::core_types::VariantArray;
-use crate::NewRef;
+use crate::core_types::{GodotString, OwnedToVariant, ToVariantEq, Variant, VariantArray};
+use crate::object::NewRef;
 use std::fmt;
 
-use crate::thread_access::*;
+use crate::object::ownership::*;
 
 /// A reference-counted `Dictionary` of `Variant` key-value pairs.
 ///
@@ -27,21 +20,21 @@ use crate::thread_access::*;
 ///
 /// This is a reference-counted collection with "interior mutability" in Rust parlance.
 /// To enforce that the official [thread-safety guidelines][thread-safety] are
-/// followed this type uses the *typestate* pattern. The typestate `Access` tracks
+/// followed this type uses the *typestate* pattern. The typestate `Ownership` tracks
 /// whether there is thread-local or unique access (where pretty much all operations are safe)
 /// or whether the value might be "shared", in which case not all operations are
 /// safe.
 ///
 /// [thread-safety]: https://docs.godotengine.org/en/stable/tutorials/threads/thread_safe_apis.html
-pub struct Dictionary<Access: ThreadAccess = Shared> {
+pub struct Dictionary<Own: Ownership = Shared> {
     sys: sys::godot_dictionary,
 
     /// Marker preventing the compiler from incorrectly deriving `Send` and `Sync`.
-    _marker: PhantomData<Access>,
+    _marker: PhantomData<Own>,
 }
 
 /// Operations allowed on all Dictionaries at any point in time.
-impl<Access: ThreadAccess> Dictionary<Access> {
+impl<Own: Ownership> Dictionary<Own> {
     /// Returns `true` if the `Dictionary` contains no elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -58,14 +51,14 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[inline]
     pub fn contains<K>(&self, key: K) -> bool
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
-        unsafe { (get_api().godot_dictionary_has)(self.sys(), key.to_variant().sys()) }
+        unsafe { (get_api().godot_dictionary_has)(self.sys(), key.owned_to_variant().sys()) }
     }
 
     /// Returns true if the `Dictionary` has all of the keys in the given array.
     #[inline]
-    pub fn contains_all<ArrAccess: ThreadAccess>(&self, keys: &VariantArray<ArrAccess>) -> bool {
+    pub fn contains_all<ArrayOws: Ownership>(&self, keys: &VariantArray<ArrayOws>) -> bool {
         unsafe { (get_api().godot_dictionary_has_all)(self.sys(), keys.sys()) }
     }
 
@@ -73,9 +66,9 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[inline]
     pub fn get<K>(&self, key: K) -> Option<Variant>
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
-        let key = key.to_variant();
+        let key = key.owned_to_variant();
         if self.contains(&key) {
             // This should never return the default Nil, but there isn't a safe way to otherwise check
             // if the entry exists in a single API call.
@@ -89,26 +82,26 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[inline]
     pub fn get_or<K, D>(&self, key: K, default: D) -> Variant
     where
-        K: ToVariant + ToVariantEq,
-        D: ToVariant,
+        K: OwnedToVariant + ToVariantEq,
+        D: OwnedToVariant,
     {
         unsafe {
             Variant((get_api().godot_dictionary_get_with_default)(
                 self.sys(),
-                key.to_variant().sys(),
-                default.to_variant().sys(),
+                key.owned_to_variant().sys(),
+                default.owned_to_variant().sys(),
             ))
         }
     }
 
     /// Returns a copy of the element corresponding to the key, or `Nil` if it doesn't exist.
-    /// Shorthand for `self.get_or(key, Variant::new())`.
+    /// Shorthand for `self.get_or(key, Variant::nil())`.
     #[inline]
     pub fn get_or_nil<K>(&self, key: K) -> Variant
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
-        self.get_or(key, Variant::new())
+        self.get_or(key, Variant::nil())
     }
 
     /// Update an existing element corresponding to the key.
@@ -119,10 +112,10 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[inline]
     pub fn update<K, V>(&self, key: K, val: V)
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
         V: OwnedToVariant,
     {
-        let key = key.to_variant();
+        let key = key.owned_to_variant();
         assert!(self.contains(&key), "Can only update entries that exist");
 
         unsafe {
@@ -147,11 +140,11 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[inline]
     pub unsafe fn get_ref<K>(&self, key: K) -> &Variant
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
         Variant::cast_ref((get_api().godot_dictionary_operator_index_const)(
             self.sys(),
-            key.to_variant().sys(),
+            key.owned_to_variant().sys(),
         ))
     }
 
@@ -169,11 +162,11 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_mut_ref<K>(&self, key: K) -> &mut Variant
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
         Variant::cast_mut_ref((get_api().godot_dictionary_operator_index)(
             self.sys_mut(),
-            key.to_variant().sys(),
+            key.owned_to_variant().sys(),
         ))
     }
 
@@ -195,11 +188,6 @@ impl<Access: ThreadAccess> Dictionary<Access> {
         unsafe { VariantArray::<Unique>::from_sys((get_api().godot_dictionary_values)(self.sys())) }
     }
 
-    #[inline]
-    pub fn get_next(&self, key: &Variant) -> &Variant {
-        unsafe { Variant::cast_ref((get_api().godot_dictionary_next)(self.sys(), key.sys())) }
-    }
-
     /// Return a hashed i32 value representing the dictionary's contents.
     #[inline]
     pub fn hash(&self) -> i32 {
@@ -212,7 +200,7 @@ impl<Access: ThreadAccess> Dictionary<Access> {
     /// Modifying the same underlying collection while observing the safety assumptions will
     /// not violate memory safely, but may lead to surprising behavior in the iterator.
     #[inline]
-    pub fn iter(&self) -> Iter<Access> {
+    pub fn iter(&self) -> Iter<Own> {
         Iter::new(self)
     }
 
@@ -250,7 +238,7 @@ impl<Access: ThreadAccess> Dictionary<Access> {
         }
     }
 
-    unsafe fn cast_access<A: ThreadAccess>(self) -> Dictionary<A> {
+    unsafe fn cast_access<A: Ownership>(self) -> Dictionary<A> {
         let sys = self.sys;
         std::mem::forget(self);
         Dictionary::from_sys(sys)
@@ -264,41 +252,6 @@ impl Dictionary<Shared> {
     pub fn new_shared() -> Self {
         Dictionary::<Unique>::new().into_shared()
     }
-
-    /// Inserts or updates the value of the element corresponding to the key.
-    ///
-    #[doc_variant_collection_safety]
-    #[inline]
-    pub unsafe fn insert<K, V>(&self, key: K, val: V)
-    where
-        K: OwnedToVariant + ToVariantEq,
-        V: OwnedToVariant,
-    {
-        (get_api().godot_dictionary_set)(
-            self.sys_mut(),
-            key.owned_to_variant().sys(),
-            val.owned_to_variant().sys(),
-        )
-    }
-
-    /// Erase a key-value pair in the `Dictionary` by the specified key.
-    ///
-    #[doc_variant_collection_safety]
-    #[inline]
-    pub unsafe fn erase<K>(&self, key: K)
-    where
-        K: ToVariant + ToVariantEq,
-    {
-        (get_api().godot_dictionary_erase)(self.sys_mut(), key.to_variant().sys())
-    }
-
-    /// Clears the `Dictionary`, removing all key-value pairs.
-    ///
-    #[doc_variant_collection_safety]
-    #[inline]
-    pub unsafe fn clear(&self) {
-        (get_api().godot_dictionary_clear)(self.sys_mut())
-    }
 }
 
 /// Operations allowed on Dictionaries that may only be shared on the current thread.
@@ -311,7 +264,7 @@ impl Dictionary<ThreadLocal> {
 }
 
 /// Operations allowed on Dictionaries that are not unique.
-impl<Access: NonUniqueThreadAccess> Dictionary<Access> {
+impl<Own: NonUniqueOwnership> Dictionary<Own> {
     /// Assume that this is the only reference to this dictionary, on which
     /// operations that change the container size can be safely performed.
     ///
@@ -329,7 +282,7 @@ impl<Access: NonUniqueThreadAccess> Dictionary<Access> {
 }
 
 /// Operations allowed on Dictionaries that can only be referenced to from the current thread.
-impl<Access: LocalThreadAccess> Dictionary<Access> {
+impl<Own: LocalThreadOwnership> Dictionary<Own> {
     #[inline]
     /// Inserts or updates the value of the element corresponding to the key.
     pub fn insert<K, V>(&self, key: K, val: V)
@@ -350,9 +303,9 @@ impl<Access: LocalThreadAccess> Dictionary<Access> {
     #[inline]
     pub fn erase<K>(&self, key: K)
     where
-        K: ToVariant + ToVariantEq,
+        K: OwnedToVariant + ToVariantEq,
     {
-        unsafe { (get_api().godot_dictionary_erase)(self.sys_mut(), key.to_variant().sys()) }
+        unsafe { (get_api().godot_dictionary_erase)(self.sys_mut(), key.owned_to_variant().sys()) }
     }
 
     /// Clears the `Dictionary`, removing all key-value pairs.
@@ -387,7 +340,7 @@ impl Dictionary<Unique> {
     }
 }
 
-impl<Access: ThreadAccess> Drop for Dictionary<Access> {
+impl<Own: Ownership> Drop for Dictionary<Own> {
     #[inline]
     fn drop(&mut self) {
         unsafe { (get_api().godot_dictionary_destroy)(self.sys_mut()) }
@@ -415,7 +368,7 @@ impl Default for Dictionary<ThreadLocal> {
     }
 }
 
-impl<Access: NonUniqueThreadAccess> NewRef for Dictionary<Access> {
+impl<Own: NonUniqueOwnership> NewRef for Dictionary<Own> {
     #[inline]
     fn new_ref(&self) -> Self {
         unsafe {
@@ -440,15 +393,15 @@ impl From<Dictionary<Unique>> for Dictionary<ThreadLocal> {
     }
 }
 
-impl<Access: ThreadAccess> fmt::Debug for Dictionary<Access> {
+impl<Own: Ownership> fmt::Debug for Dictionary<Own> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.to_json().to_string().fmt(f)
     }
 }
 
-unsafe fn iter_next<Access: ThreadAccess>(
-    dic: &Dictionary<Access>,
+unsafe fn iter_next<Own: Ownership>(
+    dic: &Dictionary<Own>,
     last_key: &mut Option<Variant>,
 ) -> Option<(Variant, Variant)> {
     let last_ptr = last_key.as_ref().map_or(std::ptr::null(), Variant::sys);
@@ -468,14 +421,14 @@ unsafe fn iter_next<Access: ThreadAccess>(
 ///
 /// This struct is created by the `iter` method on `Dictionary<Unique>`.
 #[derive(Debug)]
-pub struct Iter<'a, Access: ThreadAccess> {
-    dic: &'a Dictionary<Access>,
+pub struct Iter<'a, Own: Ownership> {
+    dic: &'a Dictionary<Own>,
     last_key: Option<Variant>,
 }
 
-impl<'a, Access: ThreadAccess> Iter<'a, Access> {
+impl<'a, Own: Ownership> Iter<'a, Own> {
     /// Create an Iterator from a unique Dictionary.
-    fn new(dic: &'a Dictionary<Access>) -> Self {
+    fn new(dic: &'a Dictionary<Own>) -> Self {
         Iter {
             dic,
             last_key: None,
@@ -483,7 +436,7 @@ impl<'a, Access: ThreadAccess> Iter<'a, Access> {
     }
 }
 
-impl<'a, Access: ThreadAccess> Iterator for Iter<'a, Access> {
+impl<'a, Own: Ownership> Iterator for Iter<'a, Own> {
     type Item = (Variant, Variant);
 
     #[inline]
@@ -493,14 +446,13 @@ impl<'a, Access: ThreadAccess> Iterator for Iter<'a, Access> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        use std::convert::TryFrom;
         (0, usize::try_from(self.dic.len()).ok())
     }
 }
 
-impl<'a, Access: ThreadAccess> IntoIterator for &'a Dictionary<Access> {
+impl<'a, Own: Ownership> IntoIterator for &'a Dictionary<Own> {
     type Item = (Variant, Variant);
-    type IntoIter = Iter<'a, Access>;
+    type IntoIter = Iter<'a, Own>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -537,7 +489,6 @@ impl Iterator for IntoIter {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        use std::convert::TryFrom;
         (0, usize::try_from(self.dic.len()).ok())
     }
 }
@@ -564,7 +515,7 @@ where
     }
 }
 
-impl<K, V, Access: LocalThreadAccess> Extend<(K, V)> for Dictionary<Access>
+impl<K, V, Own: LocalThreadOwnership> Extend<(K, V)> for Dictionary<Own>
 where
     K: ToVariantEq + OwnedToVariant,
     V: OwnedToVariant,
@@ -581,12 +532,12 @@ godot_test!(test_dictionary {
     use std::collections::HashSet;
 
     use crate::core_types::VariantType;
-    let foo = Variant::from_str("foo");
-    let bar = Variant::from_str("bar");
-    let nope = Variant::from_str("nope");
+    let foo = Variant::new("foo");
+    let bar = Variant::new("bar");
+    let nope = Variant::new("nope");
 
-    let x = Variant::from_i64(42);
-    let y = Variant::from_i64(1337);
+    let x = Variant::new(42);
+    let y = Variant::new(1337);
 
     let dict = Dictionary::new();
 
@@ -598,7 +549,7 @@ godot_test!(test_dictionary {
     assert!(!dict.contains(&nope));
 
     let keys_array = dict.keys();
-    let baz = Variant::from_str("baz");
+    let baz = Variant::new("baz");
     keys_array.push(&baz);
     dict.insert(&baz, &x);
 
@@ -608,14 +559,14 @@ godot_test!(test_dictionary {
 
     assert!(!dict.contains_all(&keys_array));
 
-    let variant = Variant::from_dictionary(&dict.duplicate().into_shared());
+    let variant = Variant::new(&dict.duplicate().into_shared());
     assert!(variant.get_type() == VariantType::Dictionary);
 
     let dict2 = dict.duplicate();
     assert!(dict2.contains(&foo));
     assert!(dict2.contains(&bar));
 
-    if let Some(dic_variant) = variant.try_to_dictionary() {
+    if let Ok(dic_variant) = variant.try_to::<Dictionary>() {
         assert!(dic_variant.len() == dict.len());
     } else {
         panic!("variant should be a Dictionary");
@@ -625,23 +576,23 @@ godot_test!(test_dictionary {
     let expected_keys = ["foo", "bar"].iter().map(|&s| s.to_string()).collect::<HashSet<_>>();
     for (key, value) in &dict {
         assert_eq!(Some(value), dict.get(&key));
-        if !iter_keys.insert(key.to_string()) {
-            panic!("key is already contained in set: {:?}", key);
-        }
+        assert!(
+            iter_keys.insert(key.to_string()) ,
+            "key is already contained in set: {key:?}"
+        );
     }
     assert_eq!(expected_keys, iter_keys);
 });
 
-// TODO: clear dictionaries without affecting clones
-//godot_test!(test_dictionary_clone_clear {
-//    let foo = Variant::from_str("foo");
-//    let bar = Variant::from_str("bar");
-//    let mut dict = Dictionary::new();
-//
-//    dict.set(&foo, &bar);
-//    let dict_clone = dict.clone();
-//    dict.clear();
-//
-//    assert!(dict.is_empty());
-//    assert!(!dict_clone.is_empty());
-//});
+godot_test!(test_dictionary_clone_clear {
+    let foo = Variant::new("foo");
+    let bar = Variant::new("bar");
+    let dict = Dictionary::new();
+
+    dict.insert(&foo, &bar);
+    let dict_clone = dict.duplicate();
+    dict.clear();
+
+    assert!(dict.is_empty());
+    assert!(!dict_clone.is_empty());
+});

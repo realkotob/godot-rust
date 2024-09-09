@@ -1,3 +1,4 @@
+use gdnative::export::StaticallyNamed;
 use gdnative::prelude::*;
 
 pub(crate) fn run_tests() -> bool {
@@ -17,81 +18,65 @@ struct VariantCallArgs;
 impl NativeClass for VariantCallArgs {
     type Base = Reference;
     type UserData = user_data::MutexData<VariantCallArgs>;
-    fn class_name() -> &'static str {
-        "VariantCallArgs"
-    }
-    fn init(_owner: TRef<Reference>) -> VariantCallArgs {
+    fn nativeclass_init(_owner: TRef<Reference>) -> VariantCallArgs {
         VariantCallArgs
     }
-    fn register_properties(_builder: &ClassBuilder<Self>) {}
+    fn nativeclass_register_properties(_builder: &ClassBuilder<Self>) {}
+}
+
+impl StaticallyNamed for VariantCallArgs {
+    const CLASS_NAME: &'static str = "VariantCallArgs";
 }
 
 #[methods]
 impl VariantCallArgs {
-    #[export]
-    fn zero(&mut self, _owner: &Reference) -> i32 {
+    #[method]
+    fn zero(&mut self) -> i32 {
         42
     }
 
-    #[export]
-    fn one(&mut self, _owner: &Reference, a: i32) -> i32 {
+    #[method]
+    fn one(&mut self, a: i32) -> i32 {
         a * 42
     }
 
-    #[export]
-    fn two(&mut self, _owner: &Reference, a: i32, b: i32) -> i32 {
+    #[method]
+    fn two(&mut self, a: i32, b: i32) -> i32 {
         a * 42 + b
     }
 
-    #[export]
-    fn three(&mut self, _owner: &Reference, a: i32, b: i32, c: i32) -> i32 {
+    #[method]
+    fn three(&mut self, a: i32, b: i32, c: i32) -> i32 {
         a * 42 + b * c
     }
 }
 
-fn test_variant_call_args() -> bool {
-    println!(" -- test_variant_call_args");
+crate::godot_itest! { test_variant_call_args {
+    let obj = Instance::<VariantCallArgs, _>::new();
 
-    let ok = std::panic::catch_unwind(|| {
-        let obj = Instance::<VariantCallArgs, _>::new();
+    let mut base = obj.into_base().into_shared().to_variant();
 
-        let mut base = obj.into_base().into_shared().to_variant();
+    assert_eq!(Some(42), call_i64(&mut base, "zero", &[]));
 
-        assert_eq!(Some(42), base.call("zero", &[]).unwrap().try_to_i64());
+    assert_eq!(Some(126), call_i64(&mut base, "one", &[Variant::new(3)]));
 
-        assert_eq!(
-            Some(126),
-            base.call("one", &[Variant::from_i64(3),])
-                .unwrap()
-                .try_to_i64()
-        );
+    assert_eq!(
+        Some(-10),
+        call_i64(&mut base, "two", &[Variant::new(-1), Variant::new(32)])
+    );
 
-        assert_eq!(
-            Some(-10),
-            base.call("two", &[Variant::from_i64(-1), Variant::from_i64(32),])
-                .unwrap()
-                .try_to_i64()
-        );
+    assert_eq!(
+        Some(-52),
+        call_i64(
+            &mut base,
+            "three",
+            &[Variant::new(-2), Variant::new(4), Variant::new(8),]
+        )
+    );
+}}
 
-        assert_eq!(
-            Some(-52),
-            base.call(
-                "three",
-                &[
-                    Variant::from_i64(-2),
-                    Variant::from_i64(4),
-                    Variant::from_i64(8),
-                ]
-            )
-            .unwrap()
-            .try_to_i64()
-        );
-    })
-    .is_ok();
+fn call_i64(variant: &mut Variant, method: &str, args: &[Variant]) -> Option<i64> {
+    let result = unsafe { variant.call(method, args) };
 
-    if !ok {
-        gdnative::godot_error!("   !! Test test_variant_call_args failed");
-    }
-
-    ok
+    result.unwrap().to()
 }

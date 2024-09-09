@@ -8,7 +8,7 @@ struct GreetingResource {
     name: String,
 }
 
-#[gdnative::methods]
+#[methods]
 impl GreetingResource {
     fn new(_owner: &Resource) -> Self {
         Self { name: "".into() }
@@ -26,10 +26,10 @@ struct Greeter {
     // All these traits are implemented for `Instance<T, Shared>` where the base class of `T` is reference-counted.
     // `Resource` inherits from `Reference`, so all native scripts extending `Resource` have reference-counted base classes.
     #[property]
-    greeting_resource: Option<Instance<GreetingResource, Shared>>,
+    greeting_resource: Option<Instance<GreetingResource>>,
 }
 
-#[gdnative::methods]
+#[methods]
 impl Greeter {
     fn new(_owner: &Node) -> Self {
         Greeter {
@@ -37,18 +37,21 @@ impl Greeter {
         }
     }
 
-    #[export]
-    fn _ready(&self, _owner: &Node) {
+    #[method]
+    fn _ready(&self) {
         if let Some(greeting_resource) = self.greeting_resource.as_ref() {
             let greeting_resource = unsafe { greeting_resource.assume_safe() };
-            greeting_resource.map(|s, o| s.say_hello(&*o)).unwrap();
+            greeting_resource.map(|s, o| s.say_hello(&o)).unwrap();
         }
     }
 }
 
-fn init(handle: InitHandle) {
-    handle.add_class::<Greeter>();
-    handle.add_class::<GreetingResource>();
-}
+struct ResourceLibrary;
 
-godot_init!(init);
+#[gdnative::init::callbacks]
+impl GDNativeCallbacks for ResourceLibrary {
+    fn nativescript_init(handle: InitHandle) {
+        handle.add_class::<Greeter>();
+        handle.add_class::<GreetingResource>();
+    }
+}

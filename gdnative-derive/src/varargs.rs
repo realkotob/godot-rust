@@ -6,7 +6,7 @@ use syn::visit::Visit;
 use syn::Fields;
 use syn::{spanned::Spanned, Data, DeriveInput, Ident};
 
-use crate::extend_bounds::with_visitor;
+use crate::utils::extend_bounds::with_visitor;
 
 pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, syn::Error> {
     let derived = crate::automatically_derived();
@@ -16,7 +16,8 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
 
         let mut generics = with_visitor(
             input.generics,
-            &syn::parse_quote! { ::gdnative::core_types::FromVariant },
+            Some(&syn::parse_quote! { ::gdnative::core_types::FromVariant }),
+            None,
             |visitor| {
                 visitor.visit_data_struct(&struct_data);
             },
@@ -35,11 +36,11 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
             Fields::Unit => {
                 return Ok(quote! {
                     #derived
-                    impl #generics ::gdnative::nativescript::init::method::FromVarargs for #ident #generics #where_clause {
+                    impl #generics ::gdnative::export::FromVarargs for #ident #generics #where_clause {
                         fn read<'a>(
-                            #input_ident: &mut ::gdnative::nativescript::init::method::Varargs<'a>,
-                        ) -> Result<Self, Vec<::gdnative::nativescript::init::method::ArgumentError<'a>>> {
-                            Ok(#ident)
+                            #input_ident: &mut ::gdnative::export::Varargs<'a>,
+                        ) -> std::result::Result<Self, std::vec::Vec<::gdnative::export::ArgumentError<'a>>> {
+                            std::result::Result::Ok(#ident)
                         }
                     }
                 })
@@ -48,7 +49,13 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
 
         let mut required = Vec::new();
         let mut optional = Vec::new();
-        for field in fields.iter() {
+        let mut skipped = Vec::new();
+        for field in fields {
+            if field.attrs.iter().any(|attr| attr.path.is_ident("skip")) {
+                skipped.push(field);
+                continue;
+            }
+
             let is_optional = field.attrs.iter().any(|attr| attr.path.is_ident("opt"));
             if !is_optional && !optional.is_empty() {
                 return Err(syn::Error::new(
@@ -70,7 +77,7 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
                 field
                     .ident
                     .clone()
-                    .unwrap_or_else(|| Ident::new(&format!("__req_arg_{}", n), Span::call_site()))
+                    .unwrap_or_else(|| Ident::new(&format!("__req_arg_{n}"), Span::call_site()))
             })
             .collect::<Vec<_>>();
         let req_var_names = required
@@ -94,7 +101,7 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
                 field
                     .ident
                     .clone()
-                    .unwrap_or_else(|| Ident::new(&format!("__opt_arg_{}", n), Span::call_site()))
+                    .unwrap_or_else(|| Ident::new(&format!("__opt_arg_{n}"), Span::call_site()))
             })
             .collect::<Vec<_>>();
         let opt_var_names = optional
@@ -111,13 +118,24 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
             .map(|field| format!("{}", field.ty.to_token_stream()))
             .collect::<Vec<_>>();
 
+        let skipped_var_idents = skipped
+            .iter()
+            .enumerate()
+            .map(|(n, field)| {
+                field
+                    .ident
+                    .clone()
+                    .unwrap_or_else(|| Ident::new(&format!("__skipped_arg_{n}"), Span::call_site()))
+            })
+            .collect::<Vec<_>>();
+
         Ok(quote! {
             #derived
-            impl #generics ::gdnative::nativescript::init::method::FromVarargs for #ident #generics #where_clause {
+            impl #generics ::gdnative::export::FromVarargs for #ident #generics #where_clause {
                 fn read<'a>(
-                    #input_ident: &mut ::gdnative::nativescript::init::method::Varargs<'a>,
-                ) -> Result<Self, Vec<::gdnative::nativescript::init::method::ArgumentError<'a>>> {
-                    let mut __errors = Vec::new();
+                    #input_ident: &mut ::gdnative::export::Varargs<'a>,
+                ) -> std::result::Result<Self,std::vec:: Vec<::gdnative::export::ArgumentError<'a>>> {
+                    let mut __errors = std::vec::Vec::new();
 
                     #(
                         let #req_var_idents = #input_ident.read()
@@ -140,16 +158,21 @@ pub(crate) fn derive_from_varargs(input: DeriveInput) -> Result<TokenStream2, sy
                     )*
 
                     if !__errors.is_empty() {
-                        return Err(__errors);
+                        return std::result::Result::Err(__errors);
                     }
 
                     #(
                         let #req_var_idents = #req_var_idents.unwrap();
                     )*
 
-                    Ok(#ident {
+                    #(
+                        let #skipped_var_idents = core::default::Default::default();
+                    )*
+
+                    std::result::Result::Ok(#ident {
                         #(#req_var_idents,)*
                         #(#opt_var_idents,)*
+                        #(#skipped_var_idents,)*
                     })
                 }
             }

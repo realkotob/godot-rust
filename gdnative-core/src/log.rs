@@ -2,11 +2,14 @@
 use std::ffi::CStr;
 use std::fmt::{self, Display};
 
+// Collection of macros accessing the Godot engine log/print functionality
+pub use crate::{godot_dbg, godot_error, godot_print, godot_site, godot_warn};
+
 use crate::core_types::GodotString;
 use crate::private;
 
 /// Value representing a call site for errors and warnings. Can be constructed
-/// using the `godot_site!` macro, or manually.
+/// using the [`godot_site`] macro, or manually.
 #[derive(Copy, Clone, Debug)]
 pub struct Site<'a> {
     file: &'a CStr,
@@ -45,18 +48,22 @@ impl<'a> Display for Site<'a> {
 
 /// Print a message to the Godot console.
 ///
+/// Typically, you would use this through the [`godot_print`] macro.
+///
 /// # Panics
 ///
 /// If the API isn't initialized.
 #[inline]
 pub fn print<S: Display>(msg: S) {
     unsafe {
-        let msg = GodotString::from_str(&msg.to_string());
+        let msg = GodotString::from_str(msg.to_string());
         (private::get_api().godot_print)(&msg.to_sys() as *const _);
     }
 }
 
 /// Print a warning to the Godot console.
+///
+/// Typically, you would use this through the [`godot_warn`] macro.
 ///
 /// # Panics
 ///
@@ -77,6 +84,8 @@ pub fn warn<S: Display>(site: Site<'_>, msg: S) {
 }
 
 /// Print an error to the Godot console.
+///
+/// Typically, you would use this through the [`godot_error`] macro.
 ///
 /// # Panics
 ///

@@ -2,7 +2,11 @@ use super::IsEqualApprox;
 use glam::Vec2;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+/// 2D vector class.
+///
+/// See also [Vector2](https://docs.godotengine.org/en/stable/classes/class_vector2.html) in the Godot API doc.
 #[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct Vector2 {
     pub x: f32,
@@ -247,7 +251,7 @@ impl Vector2 {
     #[inline]
     pub fn rotated(self, angle: f32) -> Self {
         let (cos, sin) = (angle.cos(), angle.sin());
-        Self::new(cos * self.x + sin * self.y, sin * self.x + cos * self.y)
+        Self::new(cos * self.x - sin * self.y, sin * self.x + cos * self.y)
     }
 
     /// Returns the vector with all components rounded to the nearest integer, with halfway cases

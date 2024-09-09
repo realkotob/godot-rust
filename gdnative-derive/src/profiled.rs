@@ -47,7 +47,7 @@ impl<'a> Extend<&'a syn::NestedMeta> for ProfiledAttrArgsBuilder {
                     if let Some(old) = self.tag.replace(string) {
                         self.errors.push(syn::Error::new(
                             pair.lit.span(),
-                            format!("there is already a tag set: {:?}", old),
+                            format!("there is already a tag set: {old:?}"),
                         ));
                     }
                 }
@@ -111,7 +111,8 @@ pub(crate) fn derive_profiled(
 
     let stmts = std::mem::take(&mut item_fn.block.stmts);
     item_fn.block = Box::new(parse_quote!({
-        ::gdnative::nativescript::profiling::profile(::gdnative::profile_sig!(#tag), move || {
+        ::gdnative::profiler::profile(
+            ::gdnative::profiler::profile_sig!(#tag), move || {
             #(#stmts)*
         })
     }));

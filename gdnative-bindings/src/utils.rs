@@ -1,13 +1,15 @@
 //! Utility functions and extension traits that depend on generated bindings
 
+use gdnative_core::core_types::NodePath;
+use gdnative_core::export::NativeClass;
+use gdnative_core::object::{SubClass, TInstance, TRef};
+
 use super::generated::{Engine, Node, SceneTree};
-use gdnative_core::nativescript::{NativeClass, RefInstance};
-use gdnative_core::object::SubClass;
-use gdnative_core::thread_access::Shared;
-use gdnative_core::TRef;
 
 /// Convenience method  to obtain a reference to an "auto-load" node, that is a child of the root
-/// node. Returns `None` if the node does not exist or is not of the correct type.
+/// node.
+///
+/// Returns `None` if the node does not exist or is not of the correct type.
 ///
 /// # Safety
 ///
@@ -31,7 +33,7 @@ where
         .cast::<T>()
 }
 
-pub trait NodeExt {
+pub trait NodeResolveExt<P: Into<NodePath>> {
     /// Convenience method to obtain a reference to a node at `path` relative to `self`,
     /// and cast it to the desired type. Returns `None` if the node does not exist or is
     /// not of the correct type.
@@ -43,7 +45,7 @@ pub trait NodeExt {
     /// invariants must be observed for the resulting node during `'a`, if any.
     ///
     /// [thread-safety]: https://docs.godotengine.org/en/stable/tutorials/threads/thread_safe_apis.html
-    unsafe fn get_node_as<'a, T>(&self, path: &str) -> Option<TRef<'a, T>>
+    unsafe fn get_node_as<'a, T>(&self, path: P) -> Option<TRef<'a, T>>
     where
         T: SubClass<Node>;
 
@@ -58,7 +60,7 @@ pub trait NodeExt {
     /// invariants must be observed for the resulting node during `'a`, if any.
     ///
     /// [thread-safety]: https://docs.godotengine.org/en/stable/tutorials/threads/thread_safe_apis.html
-    unsafe fn get_node_as_instance<'a, T>(&self, path: &str) -> Option<RefInstance<'a, T, Shared>>
+    unsafe fn get_node_as_instance<'a, T>(&self, path: P) -> Option<TInstance<'a, T>>
     where
         T: NativeClass,
         T::Base: SubClass<Node>,
@@ -67,20 +69,11 @@ pub trait NodeExt {
     }
 }
 
-impl<'n, N: SubClass<Node>> NodeExt for &'n N {
-    unsafe fn get_node_as<'a, T>(&self, path: &str) -> Option<TRef<'a, T>>
+impl<N: SubClass<Node>, P: Into<NodePath>> NodeResolveExt<P> for N {
+    unsafe fn get_node_as<'a, T>(&self, path: P) -> Option<TRef<'a, T>>
     where
         T: SubClass<Node>,
     {
         self.upcast().get_node(path)?.assume_safe().cast()
-    }
-}
-
-impl<'n, N: SubClass<Node>> NodeExt for TRef<'n, N> {
-    unsafe fn get_node_as<'a, T>(&self, path: &str) -> Option<TRef<'a, T>>
-    where
-        T: SubClass<Node>,
-    {
-        self.as_ref().get_node_as(path)
     }
 }

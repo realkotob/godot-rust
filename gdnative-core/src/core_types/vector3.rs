@@ -3,7 +3,11 @@ use super::IsEqualApprox;
 use glam::Vec3A;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+/// 3D vector class.
+///
+/// See also [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) in the Godot API doc.
 #[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(C)]
 pub struct Vector3 {
     pub x: f32,
@@ -11,12 +15,28 @@ pub struct Vector3 {
     pub z: f32,
 }
 
+#[allow(
+    clippy::unnecessary_cast, // False positives: casts necessary for cross-platform
+    clippy::exhaustive_enums, // explicitly exhaustive since there can't be more axes for Vector3
+)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Axis {
     X = sys::godot_vector3_axis_GODOT_VECTOR3_AXIS_X as u32,
     Y = sys::godot_vector3_axis_GODOT_VECTOR3_AXIS_Y as u32,
     Z = sys::godot_vector3_axis_GODOT_VECTOR3_AXIS_Z as u32,
+}
+
+impl Axis {
+    /// Returns this axis as a vector of length 1, with only one component set.
+    #[inline]
+    pub fn to_unit_vector(self) -> Vector3 {
+        match self {
+            Axis::X => Vector3::RIGHT,
+            Axis::Y => Vector3::UP,
+            Axis::Z => Vector3::BACK,
+        }
+    }
 }
 
 /// Helper methods for `Vector3`.
@@ -198,8 +218,9 @@ impl Vector3 {
         Self::gd(self.glam().lerp(b.glam(), t))
     }
 
-    /// Returns the axis of the vector's largest value. See `Axis` enum.
-    /// If all components are equal, this method returns `Axis::X`.
+    /// Returns the axis of the vector's largest value. See [`Axis`] enum.
+    ///
+    /// If multiple components are equal, this method returns in preferred order `Axis::X`, `Axis::Y`, `Axis::Z`.
     #[inline]
     #[allow(clippy::collapsible_else_if)]
     pub fn max_axis(self) -> Axis {
@@ -219,7 +240,8 @@ impl Vector3 {
     }
 
     /// Returns the axis of the vector's smallest value. See `Axis` enum.
-    /// If all components are equal, this method returns `Axis::Z`.
+    ///
+    /// If multiple components are equal, this method returns in preferred order `Axis::X`, `Axis::Y`, `Axis::Z`.
     #[inline]
     #[allow(clippy::collapsible_else_if)]
     pub fn min_axis(self) -> Axis {
@@ -259,7 +281,7 @@ impl Vector3 {
     /// Returns the outer product with `b`.
     #[inline]
     pub fn outer(self, b: Self) -> Basis {
-        Basis::from_elements([b * self.x, b * self.y, b * self.z])
+        Basis::from_rows(b * self.x, b * self.y, b * self.z)
     }
 
     /// Returns a vector composed of the `rem_euclid` of this vector's components and `mod`.
@@ -295,7 +317,7 @@ impl Vector3 {
     /// vector.
     #[inline]
     pub fn rotated(self, axis: Self, phi: f32) -> Self {
-        Basis::from_axis_angle(&axis, phi) * self
+        Basis::from_axis_angle(axis, phi) * self
     }
 
     /// Returns this vector with all components rounded to the nearest integer, with halfway cases

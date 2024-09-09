@@ -10,9 +10,13 @@ pub(crate) fn run_tests() -> bool {
     status
 }
 
+#[cfg(not(feature = "no-manual-register"))]
 pub(crate) fn register(handle: InitHandle) {
     handle.add_class::<Bar>();
 }
+
+#[cfg(feature = "no-manual-register")]
+pub(crate) fn register(_handle: InitHandle) {}
 
 #[derive(NativeClass)]
 #[inherit(Node)]
@@ -21,8 +25,8 @@ struct Bar(i64, Arc<AtomicUsize>);
 
 #[methods]
 impl Bar {
-    #[export]
-    fn free_is_not_ub(&mut self, owner: &Node) -> bool {
+    #[method]
+    fn free_is_not_ub(&mut self, #[base] owner: &Node) -> bool {
         unsafe {
             owner.assume_unique().free();
         }
@@ -30,8 +34,8 @@ impl Bar {
         true
     }
 
-    #[export]
-    fn set_script_is_not_ub(&mut self, owner: &Node) -> bool {
+    #[method]
+    fn set_script_is_not_ub(&mut self, #[base] owner: &Node) -> bool {
         owner.set_script(Null::null());
         assert_eq!(42, self.0, "self should not point to garbage");
         true
@@ -45,38 +49,27 @@ impl Drop for Bar {
     }
 }
 
-fn test_owner_free_ub() -> bool {
-    println!(" -- test_owner_free_ub");
+crate::godot_itest! { test_owner_free_ub {
+    let drop_counter = Arc::new(AtomicUsize::new(0));
 
-    let ok = std::panic::catch_unwind(|| {
-        let drop_counter = Arc::new(AtomicUsize::new(0));
+    {
+        let bar = Bar(42, Arc::clone(&drop_counter)).emplace();
 
-        {
-            let bar = Bar(42, Arc::clone(&drop_counter)).emplace();
+        assert_eq!(Some(true), unsafe {
+            bar.base().call("set_script_is_not_ub", &[]).to()
+        });
 
-            assert_eq!(Some(true), unsafe {
-                bar.base().call("set_script_is_not_ub", &[]).try_to_bool()
-            });
-
-            bar.into_base().free();
-        }
-
-        {
-            let bar = Bar(42, Arc::clone(&drop_counter)).emplace();
-
-            assert_eq!(Some(true), unsafe {
-                bar.base().call("free_is_not_ub", &[]).try_to_bool()
-            });
-        }
-
-        // the values are eventually dropped
-        assert_eq!(2, drop_counter.load(AtomicOrdering::Acquire));
-    })
-    .is_ok();
-
-    if !ok {
-        gdnative::godot_error!("   !! Test test_owner_free_ub failed");
+        bar.into_base().free();
     }
 
-    ok
-}
+    {
+        let bar = Bar(42, Arc::clone(&drop_counter)).emplace();
+
+        assert_eq!(Some(true), unsafe {
+            bar.base().call("free_is_not_ub", &[]).to()
+        });
+    }
+
+    // the values are eventually dropped
+    assert_eq!(2, drop_counter.load(AtomicOrdering::Acquire));
+}}

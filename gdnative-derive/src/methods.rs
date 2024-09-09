@@ -1,54 +1,17 @@
-use syn::{spanned::Spanned, FnArg, ImplItem, ItemImpl, Pat, PatIdent, Signature, Type};
+use syn::{
+    spanned::Spanned, visit::Visit, visit_mut::VisitMut, FnArg, Generics, ImplItem, ItemImpl, Meta,
+    NestedMeta, Pat, PatIdent, Signature, Type,
+};
 
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
-use std::boxed::Box;
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum RpcMode {
-    Disabled,
-    Remote,
-    RemoteSync,
-    Master,
-    Puppet,
-    MasterSync,
-    PuppetSync,
-}
+use crate::syntax::rpc_mode::RpcMode;
+use crate::utils::find_non_concrete;
 
-impl RpcMode {
-    fn parse(s: &str) -> Option<Self> {
-        match s {
-            "remote" => Some(RpcMode::Remote),
-            "remote_sync" => Some(RpcMode::RemoteSync),
-            "master" => Some(RpcMode::Master),
-            "puppet" => Some(RpcMode::Puppet),
-            "disabled" => Some(RpcMode::Disabled),
-            "master_sync" => Some(RpcMode::MasterSync),
-            "puppet_sync" => Some(RpcMode::PuppetSync),
-            _ => None,
-        }
-    }
-}
+use self::mixin_args::{MixinArgsBuilder, MixinKind};
 
-impl Default for RpcMode {
-    fn default() -> Self {
-        RpcMode::Disabled
-    }
-}
-
-impl ToTokens for RpcMode {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        match self {
-            RpcMode::Disabled => tokens.extend(quote!(RpcMode::Disabled)),
-            RpcMode::Remote => tokens.extend(quote!(RpcMode::Remote)),
-            RpcMode::RemoteSync => tokens.extend(quote!(RpcMode::RemoteSync)),
-            RpcMode::Master => tokens.extend(quote!(RpcMode::Master)),
-            RpcMode::Puppet => tokens.extend(quote!(RpcMode::Puppet)),
-            RpcMode::MasterSync => tokens.extend(quote!(RpcMode::MasterSync)),
-            RpcMode::PuppetSync => tokens.extend(quote!(RpcMode::PuppetSync)),
-        }
-    }
-}
+mod mixin_args;
 
 pub(crate) struct ClassMethodExport {
     pub(crate) class_ty: Box<Type>,
@@ -57,103 +20,503 @@ pub(crate) struct ClassMethodExport {
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub(crate) struct ExportMethod {
+    /// Signature of the method *with argument attributes stripped*
     pub(crate) sig: Signature,
-    pub(crate) args: ExportArgs,
+    pub(crate) export_args: ExportArgs,
+    pub(crate) arg_kind: Vec<ArgKind>,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub(crate) enum ArgKind {
+    /// Variations of `self`
+    Receiver,
+    /// `#[base]`
+    Base,
+    /// `#[async_ctx]`
+    AsyncCtx,
+    /// Regular arguments
+    Regular {
+        /// `#[opt]`
+        optional: bool,
+    },
+}
+
+impl std::fmt::Display for ArgKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Receiver => write!(f, "method receiver"),
+            Self::Base => write!(f, "base/owner object"),
+            Self::AsyncCtx => write!(f, "async context"),
+            Self::Regular { optional: true } => write!(f, "optional argument"),
+            Self::Regular { optional: false } => write!(f, "regular argument"),
+        }
+    }
+}
+
+impl ArgKind {
+    fn strip_parse(arg: &mut FnArg, errors: &mut Vec<syn::Error>) -> (bool, Self) {
+        let (mut receiver, attrs) = match arg {
+            FnArg::Receiver(a) => (Some(a.self_token.span), &mut a.attrs),
+            FnArg::Typed(a) => {
+                let mut receiver = None;
+
+                if let syn::Pat::Ident(ident) = &*a.pat {
+                    if ident.ident == "self" {
+                        receiver = Some(ident.span());
+                    }
+                }
+
+                (receiver, &mut a.attrs)
+            }
+        };
+
+        let mut optional = None;
+        let mut base = None;
+        let mut async_ctx = None;
+
+        let mut fail = false;
+
+        attrs.retain(|attr| {
+            if attr.path.is_ident("self") {
+                if let Some(old_span) = receiver.replace(attr.path.span()) {
+                    fail = true;
+                    optional = Some(old_span);
+                    errors.push(syn::Error::new(attr.path.span(), "duplicate attribute"));
+                }
+                false
+            } else if attr.path.is_ident("opt") {
+                if let Some(old_span) = optional.replace(attr.path.span()) {
+                    fail = true;
+                    optional = Some(old_span);
+                    errors.push(syn::Error::new(attr.path.span(), "duplicate attribute"));
+                }
+                false
+            } else if attr.path.is_ident("base") {
+                if let Some(old_span) = base.replace(attr.path.span()) {
+                    fail = true;
+                    base = Some(old_span);
+                    errors.push(syn::Error::new(attr.path.span(), "duplicate attribute"));
+                }
+                false
+            } else if attr.path.is_ident("async_ctx") {
+                if let Some(old_span) = async_ctx.replace(attr.path.span()) {
+                    fail = true;
+                    async_ctx = Some(old_span);
+                    errors.push(syn::Error::new(attr.path.span(), "duplicate attribute"));
+                }
+                false
+            } else {
+                true
+            }
+        });
+
+        let mut special_kind = None;
+
+        macro_rules! check_special_kind {
+            ($ident:ident => $var:expr) => {
+                if let Some($ident) = $ident {
+                    if let Some(kind) = special_kind.replace($var) {
+                        fail = true;
+                        errors.push(syn::Error::new(
+                            $ident,
+                            format_args!("the {} cannot also be the {}", kind, $var),
+                        ));
+                        special_kind = Some(kind);
+                    }
+                }
+            };
+        }
+
+        check_special_kind!(receiver => ArgKind::Receiver);
+        check_special_kind!(base => ArgKind::Base);
+        check_special_kind!(async_ctx => ArgKind::AsyncCtx);
+
+        let kind = if let Some(special_kind) = special_kind {
+            if let Some(optional) = optional {
+                fail = true;
+                errors.push(syn::Error::new(
+                    optional,
+                    format_args!(
+                        "the {special_kind} cannot be optional (instead, remove the argument entirely)"
+                    ),
+                ));
+            }
+
+            special_kind
+        } else {
+            ArgKind::Regular {
+                optional: optional.is_some(),
+            }
+        };
+
+        (fail, kind)
+    }
+}
+
+impl ExportMethod {
+    fn strip_parse(
+        class_name: &Type,
+        sig: &mut Signature,
+        export_args: ExportArgs,
+        errors: &mut Vec<syn::Error>,
+    ) -> Option<Self> {
+        fn sanitize_self_type(ty: &mut Type, class_name: &Type) {
+            struct Visitor<'a> {
+                class_name: &'a Type,
+            }
+
+            impl<'a> VisitMut for Visitor<'a> {
+                fn visit_type_mut(&mut self, i: &mut Type) {
+                    if let syn::Type::Path(ty) = i {
+                        if ty.qself.is_none() {
+                            if let Some(seg) = ty.path.segments.first() {
+                                if seg.ident == "Self" {
+                                    if ty.path.segments.len() > 1 {
+                                        ty.path.segments =
+                                            ty.path.segments.iter().skip(1).cloned().collect();
+                                        ty.qself = Some(syn::QSelf {
+                                            lt_token: Token![<](Span::call_site()),
+                                            ty: Box::new(self.class_name.clone()),
+                                            position: 0,
+                                            as_token: None,
+                                            gt_token: Token![>](Span::call_site()),
+                                        });
+                                    } else {
+                                        *i = self.class_name.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    syn::visit_mut::visit_type_mut(self, i);
+                }
+            }
+
+            Visitor { class_name }.visit_type_mut(ty);
+        }
+
+        let mut arg_kind = Vec::new();
+        let sig_span = sig.ident.span();
+
+        let mut inputs = sig.inputs.iter_mut().enumerate();
+
+        let mut receiver_seen = None;
+        let mut base_seen = None;
+        let mut async_ctx_seen = None;
+
+        let mut fail = false;
+
+        let is_async = export_args.is_async || sig.asyncness.is_some();
+
+        if export_args.is_old_syntax {
+            if inputs.len() < 2 {
+                fail = true;
+            } else {
+                match inputs.next().expect("argument count checked") {
+                    (n, FnArg::Receiver(_)) => {
+                        arg_kind.push(ArgKind::Receiver);
+                        receiver_seen = Some(n);
+                    }
+                    (_, arg) => {
+                        errors.push(syn::Error::new(arg.span(), "expecting method receiver"));
+                        fail = true;
+                    }
+                }
+
+                let (n, arg) = inputs.next().expect("argument count checked");
+                let (arg_fail, kind) = ArgKind::strip_parse(arg, errors);
+                fail |= arg_fail;
+                match kind {
+                    ArgKind::Base | ArgKind::Regular { .. } => {
+                        arg_kind.push(ArgKind::Base);
+                        base_seen = Some(n);
+                    }
+                    kind => {
+                        errors.push(syn::Error::new(
+                            arg.span(),
+                            format_args!("expecting {}, found {}", ArgKind::Base, kind),
+                        ));
+                        fail = true;
+                    }
+                };
+            }
+
+            if fail {
+                errors.push(syn::Error::new(
+                    sig_span,
+                    "methods exported using the old syntax must declare both `self` and `owner`.",
+                ));
+            }
+        }
+
+        let mut regular_argument_seen = None;
+        let mut optional_argument_seen = None;
+
+        for (n, mut arg) in inputs {
+            let (arg_fail, kind) = ArgKind::strip_parse(arg, errors);
+            fail |= arg_fail;
+
+            if let FnArg::Typed(arg) = &mut arg {
+                sanitize_self_type(&mut arg.ty, class_name);
+            }
+
+            if let ArgKind::Regular { optional } = &kind {
+                regular_argument_seen.get_or_insert(n);
+
+                if *optional {
+                    optional_argument_seen.get_or_insert(n);
+                } else if let Some(idx) = optional_argument_seen {
+                    fail = true;
+                    errors.push(syn::Error::new(
+                        arg.span(),
+                        format_args!(
+                            "required parameters must precede all optional ones (an optional parameter is defined at #{idx})",
+                        )
+                    ));
+                }
+            } else if let Some(idx) = regular_argument_seen {
+                fail = true;
+                errors.push(syn::Error::new(
+                    arg.span(),
+                    format_args!(
+                        "special parameters must precede all regular ones (a regular parameter is defined at #{idx})",
+                    )
+                ));
+            } else {
+                let seen = match &kind {
+                    ArgKind::Receiver => &mut receiver_seen,
+                    ArgKind::Base => &mut base_seen,
+                    ArgKind::AsyncCtx => &mut async_ctx_seen,
+                    ArgKind::Regular { .. } => unreachable!(),
+                };
+
+                if let Some(idx) = seen.replace(n) {
+                    *seen = Some(idx);
+                    fail = true;
+                    errors.push(syn::Error::new(
+                        arg.span(),
+                        format_args!(
+                            "the special parameter {kind} must only be declared once (the same parameter is already defined at #{idx})",
+                        )
+                    ));
+                }
+            }
+
+            if matches!(kind, ArgKind::AsyncCtx) && !is_async {
+                fail = true;
+                errors.push(syn::Error::new(
+                    arg.span(),
+                    "the async context is only available to async methods",
+                ));
+            }
+
+            arg_kind.push(kind);
+        }
+
+        if fail {
+            None
+        } else {
+            Some(ExportMethod {
+                sig: sig.clone(),
+                export_args,
+                arg_kind,
+            })
+        }
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub(crate) struct ExportArgs {
-    pub(crate) optional_args: Option<usize>,
-    pub(crate) rpc_mode: RpcMode,
+    pub(crate) is_old_syntax: bool,
+    pub(crate) rpc_mode: Option<RpcMode>,
     pub(crate) name_override: Option<String>,
+    pub(crate) is_deref_return: bool,
+    pub(crate) is_async: bool,
 }
 
-pub(crate) fn derive_methods(item_impl: ItemImpl) -> TokenStream2 {
+pub(crate) fn derive_methods(
+    args: Vec<NestedMeta>,
+    item_impl: ItemImpl,
+) -> Result<TokenStream2, syn::Error> {
     let derived = crate::automatically_derived();
+    let gdnative_core = crate::crate_gdnative_core();
     let (impl_block, export) = impl_gdnative_expose(item_impl);
+    let (impl_generics, _, where_clause) = impl_block.generics.split_for_impl();
 
     let class_name = export.class_ty;
 
     let builder = syn::Ident::new("builder", proc_macro2::Span::call_site());
 
+    let args = {
+        let mut attr_args_builder = MixinArgsBuilder::new();
+
+        for arg in args {
+            if let NestedMeta::Meta(Meta::NameValue(ref pair)) = arg {
+                attr_args_builder.add_pair(pair)?;
+            } else if let NestedMeta::Meta(Meta::Path(ref path)) = arg {
+                attr_args_builder.add_path(path)?;
+            } else {
+                let msg = format!("Unexpected argument: {arg:?}");
+                return Err(syn::Error::new(arg.span(), msg));
+            }
+        }
+
+        attr_args_builder.done()?
+    };
+
+    let non_concrete = find_non_concrete::with_visitor(&impl_block.generics, |v| {
+        v.visit_type(&impl_block.self_ty)
+    });
+
+    let non_concrete = if non_concrete.is_empty() {
+        None
+    } else if non_concrete.len() == 1 {
+        Some(non_concrete[0])
+    } else {
+        Some(impl_block.self_ty.span())
+    };
+
+    if let Some(span) = non_concrete {
+        if matches!(args.mixin, Some(MixinKind::Auto(_))) {
+            return Err(syn::Error::new(
+                span,
+                "non-concrete mixins must be named and manually registered",
+            ));
+        }
+    }
+
     let methods = export
         .methods
         .into_iter()
-        .map(|ExportMethod { sig, args }| {
+        .map(|export_method| {
+            let ExportMethod {
+                sig,
+                export_args,
+                ..
+            } = &export_method;
+
             let sig_span = sig.ident.span();
 
-            let name = sig.ident;
-            let name_string = args.name_override.unwrap_or_else(|| name.to_string());
+            let name = sig.ident.clone();
+            let name_string = export_args
+                .name_override
+                .clone()
+                .unwrap_or_else(|| name.to_string());
             let ret_span = sig.output.span();
-            let ret_ty = match sig.output {
-                syn::ReturnType::Default => quote_spanned!(ret_span => ()),
-                syn::ReturnType::Type(_, ty) => quote_spanned!( ret_span => #ty ),
-            };
 
-            let arg_count = sig.inputs.len();
+            let rpc = export_args.rpc_mode.unwrap_or(RpcMode::Disabled);
+            let is_deref_return = export_args.is_deref_return;
 
-            if arg_count < 2 {
-                return syn::Error::new(
+            let warn_deprecated_export = if export_args.is_old_syntax {
+                let warning = crate::emit_warning(
                     sig_span,
-                    "exported methods must take self and owner as arguments",
-                )
-                .to_compile_error();
-            }
+                    "deprecated_export_syntax",
+                    concat!(
+                        "\n",
+                        "#[export] is deprecated and will be removed in a future godot-rust version. Use #[method] instead.\n\n",
+                        "For more information, see https://godot-rust.github.io/docs/gdnative/derive/derive.NativeClass.html."
+                    )
+                );
 
-            let optional_args = match args.optional_args {
-                Some(count) => {
-                    let max_optional = arg_count - 2; // self and owner
-                    if count > max_optional {
-                        let message = format!(
-                            "there can be at most {} optional arguments, got {}",
-                            max_optional, count,
-                        );
-                        return syn::Error::new(sig_span, message).to_compile_error();
-                    }
-                    count
-                }
-                None => 0,
+                Some(quote_spanned!(sig_span=>#warning;))
+            } else {
+                None
             };
 
-            let rpc = args.rpc_mode;
+            // See gdnative-core::export::deprecated_reference_return!()
+            let warn_deprecated_ref_return = if let syn::ReturnType::Type(_, ty) = &sig.output {
+                if !is_deref_return && matches!(**ty, syn::Type::Reference(_)) {
+                    let warning = crate::emit_warning(
+                        ret_span,
+                        "deprecated_reference_return",
+                        "This function does not actually pass by reference to the Godot engine. You can clarify by writing #[method(deref_return)]."
+                    );
 
-            let args = sig.inputs.iter().enumerate().map(|(n, arg)| {
-                let span = arg.span();
-                if n < arg_count - optional_args {
-                    quote_spanned!(span => #arg ,)
+                    quote_spanned!(ret_span=>#warning;)
                 } else {
-                    quote_spanned!(span => #[opt] #arg ,)
+                    quote_spanned!(ret_span=>)
                 }
-            });
+            } else {
+                quote_spanned!(ret_span=>)
+            };
+
+            let method = wrap_method(&class_name, &impl_block.generics, &export_method)
+                .unwrap_or_else(|err| err.to_compile_error());
 
             quote_spanned!( sig_span=>
                 {
-                    let method = ::gdnative::godot_wrap_method!(
-                        #class_name,
-                        fn #name ( #( #args )* ) -> #ret_ty
-                    );
-
-                    #builder.build_method(#name_string, method)
+                    #builder.method(#name_string, #method)
                         .with_rpc_mode(#rpc)
                         .done_stateless();
+
+                    #warn_deprecated_export
+                    #warn_deprecated_ref_return
                 }
             )
         })
         .collect::<Vec<_>>();
 
-    quote::quote!(
-        #impl_block
+    match args.mixin {
+        Some(mixin_kind) => {
+            let vis = args.pub_.then(|| quote!(pub));
 
-        #derived
-        impl gdnative::nativescript::NativeClassMethods for #class_name {
-            fn register(#builder: &::gdnative::nativescript::init::ClassBuilder<Self>) {
-                use gdnative::nativescript::init::*;
+            let mixin_name = match &mixin_kind {
+                MixinKind::Named(ident) => ident.clone(),
+                MixinKind::Auto(span) => {
+                    return Err(syn::Error::new(
+                        *span,
+                        "mixins must be named in gdnative v0.11.x",
+                    ))
+                }
+            };
 
-                #(#methods)*
-            }
+            let body = quote! {
+                #derived
+                #vis struct #mixin_name {
+                    _opaque: #gdnative_core::private::mixin::Opaque,
+                }
+
+                #derived
+                impl #gdnative_core::private::mixin::Sealed for #mixin_name {}
+                #derived
+                impl #impl_generics #gdnative_core::export::Mixin<#class_name> for #mixin_name #where_clause {
+                    fn register(#builder: &#gdnative_core::export::ClassBuilder<#class_name>) {
+                        use #gdnative_core::export::*;
+
+                        #(#methods)*
+                    }
+                }
+            };
+
+            let body = match &mixin_kind {
+                MixinKind::Named(_) => body,
+                MixinKind::Auto(_) => quote! {
+                    const _: () = {
+                        #body
+                    }
+                },
+            };
+
+            Ok(quote::quote!(
+                #impl_block
+                #body
+            ))
         }
+        None => Ok(quote::quote!(
+            #impl_block
 
-    )
+            #derived
+            impl #impl_generics #gdnative_core::export::NativeClassMethods for #class_name #where_clause {
+                fn nativeclass_register(#builder: &#gdnative_core::export::ClassBuilder<Self>) {
+                    use #gdnative_core::export::*;
+
+                    #(#methods)*
+                }
+            }
+
+        )),
+    }
 }
 
 /// Extract the data to export from the impl block.
@@ -175,15 +538,12 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
 
     let mut methods_to_export: Vec<ExportMethod> = Vec::new();
 
-    // extract all methods that have the #[export] attribute.
+    // extract all methods that have the #[method] attribute
     // add all items back to the impl block again.
     for func in ast.items {
         let items = match func {
             ImplItem::Method(mut method) => {
                 let mut export_args = None;
-                let mut rpc = None;
-                let mut name_override = None;
-
                 let mut errors = vec![];
 
                 // only allow the "outer" style, aka #[thing] item.
@@ -196,122 +556,156 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
                             .last()
                             .map(|i| i.ident.to_string());
 
-                        if let Some("export") = last_seg.as_deref() {
-                            let _export_args = export_args.get_or_insert_with(ExportArgs::default);
-                            if !attr.tokens.is_empty() {
-                                use syn::{Meta, MetaNameValue, NestedMeta};
+                        let (is_export, is_old_syntax, macro_name) =
+                            if let Some("export") = last_seg.as_deref() {
+                                (true, true, "export")
+                            } else if let Some("method") = last_seg.as_deref() {
+                                (true, false, "method")
+                            } else {
+                                (false, false, "unknown")
+                            };
 
-                                let meta = match attr.parse_meta() {
-                                    Ok(val) => val,
-                                    Err(err) => {
-                                        errors.push(err);
-                                        return false;
-                                    }
-                                };
+                        if is_export {
+                            use syn::{punctuated::Punctuated, Lit};
+                            let export_args = export_args.get_or_insert_with(ExportArgs::default);
+                            export_args.is_old_syntax = is_old_syntax;
 
-                                let pairs: Vec<_> = match meta {
-                                    Meta::List(list) => list
-                                        .nested
-                                        .into_pairs()
-                                        .filter_map(|p| {
-                                            let span = p.span();
-                                            match p.into_value() {
-                                                NestedMeta::Meta(Meta::NameValue(pair)) => {
-                                                    Some(pair)
-                                                }
-                                                unexpected => {
-                                                    let msg = format!(
-                                                        "unexpected argument in list: {}",
-                                                        unexpected.into_token_stream()
-                                                    );
-                                                    errors.push(syn::Error::new(span, msg));
-                                                    None
-                                                }
-                                            }
-                                        })
-                                        .collect(),
-                                    Meta::NameValue(pair) => vec![pair],
-                                    meta => {
-                                        let span = meta.span();
-                                        let msg = format!(
-                                            "unexpected attribute argument: {}",
-                                            meta.into_token_stream()
-                                        );
+                            // Codes like #[macro(path, name = "value")] are accepted.
+                            // Codes like #[path], #[name = "value"] or #[macro("lit")] are not accepted.
+                            let nested_meta_iter = match attr.parse_meta() {
+                                Err(err) => {
+                                    errors.push(err);
+                                    return false;
+                                }
+                                Ok(Meta::NameValue(name_value)) => {
+                                    let span = name_value.span();
+                                    let msg = "NameValue syntax is not valid";
+                                    errors.push(syn::Error::new(span, msg));
+                                    return false;
+                                }
+                                Ok(Meta::Path(_)) => {
+                                    Punctuated::<NestedMeta, syn::token::Comma>::new().into_iter()
+                                }
+                                Ok(Meta::List(list)) => list.nested.into_iter(),
+                            };
+                            for nested_meta in nested_meta_iter {
+                                let (path, lit) = match &nested_meta {
+                                    NestedMeta::Lit(param) => {
+                                        let span = param.span();
+                                        let msg = "Literal item is not valid";
                                         errors.push(syn::Error::new(span, msg));
-                                        return false;
+                                        continue;
                                     }
+                                    NestedMeta::Meta(param) => match param {
+                                        Meta::List(list) => {
+                                            let span = list.span();
+                                            let msg = "List item is not valid";
+                                            errors.push(syn::Error::new(span, msg));
+                                            continue;
+                                        }
+                                        Meta::Path(path) => (path, None),
+                                        Meta::NameValue(name_value) => {
+                                            (&name_value.path, Some(&name_value.lit))
+                                        }
+                                    },
                                 };
-
-                                for MetaNameValue { path, lit, .. } in pairs {
-                                    let last = match path.segments.last() {
-                                        Some(val) => val,
+                                if path.is_ident("rpc") {
+                                    // rpc mode
+                                    match lit {
                                         None => {
                                             errors.push(syn::Error::new(
-                                                path.span(),
-                                                "the path should not be empty",
+                                                nested_meta.span(),
+                                                "`rpc` parameter requires string value",
                                             ));
-                                            return false;
                                         }
-                                    };
-                                    let path = last.ident.to_string();
-
-                                    // Match optional export arguments
-                                    match path.as_str() {
-                                        // rpc mode
-                                        "rpc" => {
-                                            let value = if let syn::Lit::Str(lit_str) = lit {
-                                                lit_str.value()
-                                            } else {
-                                                errors.push(syn::Error::new(
-                                                    last.span(),
-                                                    "unexpected type for rpc value, expected Str",
-                                                ));
-                                                return false;
-                                            };
-
+                                        Some(Lit::Str(str)) => {
+                                            let value = str.value();
                                             if let Some(mode) = RpcMode::parse(value.as_str()) {
-                                                if rpc.replace(mode).is_some() {
+                                                if export_args.rpc_mode.replace(mode).is_some() {
                                                     errors.push(syn::Error::new(
-                                                        last.span(),
-                                                        "rpc mode was set more than once",
+                                                        nested_meta.span(),
+                                                        "`rpc` mode was set more than once",
                                                     ));
-                                                    return false;
                                                 }
                                             } else {
                                                 errors.push(syn::Error::new(
-                                                    last.span(),
-                                                    format!("unexpected value for rpc: {}", value),
+                                                    nested_meta.span(),
+                                                    format!("unexpected value for `rpc`: {value}"),
                                                 ));
-                                                return false;
-                                            }
-                                        }
-                                        // name override
-                                        "name" => {
-                                            let value = if let syn::Lit::Str(lit_str) = lit {
-                                                lit_str.value()
-                                            } else {
-                                                errors.push(syn::Error::new(
-                                                    last.span(),
-                                                    "unexpected type for name value, expected Str",
-                                                ));
-                                                return false;
-                                            };
-
-                                            if name_override.replace(value).is_some() {
-                                                errors.push(syn::Error::new(
-                                                    last.span(),
-                                                    "name was set more than once",
-                                                ));
-                                                return false;
                                             }
                                         }
                                         _ => {
-                                            let msg =
-                                                format!("unknown option for export: `{}`", path);
-                                            errors.push(syn::Error::new(last.span(), msg));
-                                            return false;
+                                            errors.push(syn::Error::new(
+                                                nested_meta.span(),
+                                                "unexpected type for `rpc` value, expected string",
+                                            ));
                                         }
                                     }
+                                } else if path.is_ident("name") {
+                                    // name override
+                                    match lit {
+                                        None => {
+                                            errors.push(syn::Error::new(
+                                                nested_meta.span(),
+                                                "`name` parameter requires string value",
+                                            ));
+                                        }
+                                        Some(Lit::Str(str)) => {
+                                            if export_args
+                                                .name_override
+                                                .replace(str.value())
+                                                .is_some()
+                                            {
+                                                errors.push(syn::Error::new(
+                                                    nested_meta.span(),
+                                                    "`name` was set more than once",
+                                                ));
+                                            }
+                                        }
+                                        _ => {
+                                            errors.push(syn::Error::new(
+                                                nested_meta.span(),
+                                                "unexpected type for `name` value, expected string",
+                                            ));
+                                        }
+                                    }
+                                } else if path.is_ident("deref_return") {
+                                    // deref return value
+                                    if lit.is_some() {
+                                        errors.push(syn::Error::new(
+                                            nested_meta.span(),
+                                            "`deref_return` does not take any values",
+                                        ));
+                                    } else if export_args.is_deref_return {
+                                        errors.push(syn::Error::new(
+                                            nested_meta.span(),
+                                            "`deref_return` was set more than once",
+                                        ));
+                                    } else {
+                                        export_args.is_deref_return = true;
+                                    }
+                                } else if path.is_ident("async") {
+                                    // deref return value
+                                    if lit.is_some() {
+                                        errors.push(syn::Error::new(
+                                            nested_meta.span(),
+                                            "`async` does not take any values",
+                                        ));
+                                    } else if export_args.is_async {
+                                        errors.push(syn::Error::new(
+                                            nested_meta.span(),
+                                            "`async` was set more than once",
+                                        ));
+                                    } else {
+                                        export_args.is_async = true;
+                                    }
+                                } else {
+                                    let msg = format!(
+                                        "unknown option for #[{}]: `{}`",
+                                        macro_name,
+                                        path.to_token_stream()
+                                    );
+                                    errors.push(syn::Error::new(nested_meta.span(), msg));
                                 }
                             }
                             return false;
@@ -321,53 +715,13 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
                     true
                 });
 
-                if let Some(mut export_args) = export_args.take() {
-                    let mut optional_args = None;
-
-                    for (n, arg) in method.sig.inputs.iter_mut().enumerate() {
-                        let attrs = match arg {
-                            FnArg::Receiver(a) => &mut a.attrs,
-                            FnArg::Typed(a) => &mut a.attrs,
-                        };
-
-                        let mut is_optional = false;
-
-                        attrs.retain(|attr| {
-                            if attr.path.is_ident("opt") {
-                                is_optional = true;
-                                false
-                            } else {
-                                true
-                            }
-                        });
-
-                        if is_optional {
-                            if n < 2 {
-                                errors.push(syn::Error::new(
-                                    arg.span(),
-                                    "self or owner cannot be optional",
-                                ));
-                                continue;
-                            }
-
-                            *optional_args.get_or_insert(0) += 1;
-                        } else if optional_args.is_some() {
-                            errors.push(syn::Error::new(
-                                arg.span(),
-                                "cannot add required parameters after optional ones",
-                            ));
-                            continue;
-                        }
-                    }
-
-                    export_args.optional_args = optional_args;
-                    export_args.rpc_mode = rpc.unwrap_or(RpcMode::Disabled);
-                    export_args.name_override = name_override;
-
-                    methods_to_export.push(ExportMethod {
-                        sig: method.sig.clone(),
-                        args: export_args,
-                    });
+                if let Some(export_args) = export_args.take() {
+                    methods_to_export.extend(ExportMethod::strip_parse(
+                        &export.class_ty,
+                        &mut method.sig,
+                        export_args,
+                        &mut errors,
+                    ));
                 }
 
                 errors
@@ -413,7 +767,7 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
                 continue;
             }
 
-            // remove "mut" from arguments.
+            // remove "mut" from parameters.
             // give every wildcard a (hopefully) unique name.
             method
                 .sig
@@ -423,7 +777,7 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
                 .for_each(|(i, arg)| match arg {
                     FnArg::Typed(cap) => match *cap.pat.clone() {
                         Pat::Wild(_) => {
-                            let name = format!("___unused_arg_{}", i);
+                            let name = format!("___unused_arg_{i}");
 
                             cap.pat = Box::new(Pat::Ident(PatIdent {
                                 attrs: vec![],
@@ -451,4 +805,351 @@ fn impl_gdnative_expose(ast: ItemImpl) -> (ItemImpl, ClassMethodExport) {
     }
 
     (result, export)
+}
+
+pub(crate) fn expand_godot_wrap_method(
+    input: TokenStream2,
+) -> Result<TokenStream2, Vec<syn::Error>> {
+    struct Input {
+        class_name: syn::Type,
+        is_deref_return: syn::LitBool,
+        signature: syn::Signature,
+    }
+
+    impl syn::parse::Parse for Input {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let class_name = input.parse()?;
+            input.parse::<Token![,]>()?;
+
+            let is_deref_return = input.parse()?;
+            input.parse::<Token![,]>()?;
+
+            let signature = input.parse()?;
+
+            // Ignore the trailing comma
+            let _ = input.parse::<Token![,]>();
+
+            if input.is_empty() {
+                Ok(Input {
+                    class_name,
+                    is_deref_return,
+                    signature,
+                })
+            } else {
+                Err(syn::Error::new(input.span(), "expecting end of input"))
+            }
+        }
+    }
+
+    let Input {
+        class_name,
+        is_deref_return,
+        mut signature,
+    } = syn::parse2(input).map_err(|e| vec![e])?;
+
+    let export_args = ExportArgs {
+        is_old_syntax: false,
+        rpc_mode: None,
+        name_override: None,
+        is_deref_return: is_deref_return.value,
+        is_async: false,
+    };
+
+    let mut errors = Vec::new();
+    let export_method =
+        ExportMethod::strip_parse(&class_name, &mut signature, export_args, &mut errors);
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    wrap_method(
+        &class_name,
+        &Generics::default(),
+        &export_method.expect("ExportMethod is valid"),
+    )
+    .map_err(|e| vec![e])
+}
+
+fn wrap_method(
+    class_name: &Type,
+    generics: &Generics,
+    export_method: &ExportMethod,
+) -> Result<TokenStream2, syn::Error> {
+    fn wrap_maybe_receiver(
+        receiver: Option<&Type>,
+        span: Span,
+        body: TokenStream2,
+        err_value: TokenStream2,
+    ) -> TokenStream2 {
+        let gdnative_core = crate::crate_gdnative_core();
+
+        if let Some(receiver) = receiver {
+            quote_spanned! { span =>
+                <#receiver as #gdnative_core::object::Receiver<_>>::with_instance(__this, move |__rust_val| { #body })
+                    .unwrap_or_else(|err| {
+                        #gdnative_core::godot_error!("gdnative-core: method call failed with error: {}", err);
+                        #gdnative_core::godot_error!("gdnative-core: check module level documentation on gdnative::user_data for more information");
+                        #err_value
+                    })
+            }
+        } else {
+            body
+        }
+    }
+
+    let ExportMethod {
+        sig,
+        export_args,
+        arg_kind,
+    } = &export_method;
+
+    let gdnative_core = crate::crate_gdnative_core();
+    let automatically_derived = crate::automatically_derived();
+
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let turbofish_ty_generics = ty_generics.as_turbofish();
+
+    let generic_marker_decl = if generics.params.is_empty() {
+        quote!(())
+    } else {
+        quote!(core::marker::PhantomData #ty_generics)
+    };
+
+    let generic_marker_ctor = if generics.params.is_empty() {
+        quote!(())
+    } else {
+        quote!(core::marker::PhantomData)
+    };
+
+    let sig_span = sig.ident.span();
+    let ret_span = sig.output.span();
+
+    let method_name = &sig.ident;
+
+    let declare_arg_list = arg_kind
+        .iter()
+        .zip(&sig.inputs)
+        .filter_map(|(kind, arg)| {
+            if let ArgKind::Regular { optional } = kind {
+                if let FnArg::Typed(arg) = arg {
+                    let span = arg.span();
+                    let maybe_opt = if *optional {
+                        Some(quote_spanned!(span => #[opt]))
+                    } else {
+                        None
+                    };
+                    Some(quote_spanned!(span => #maybe_opt #arg))
+                } else {
+                    unreachable!("regular arguments should always be FnArg::Typed")
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let destructure_arg_list = arg_kind
+        .iter()
+        .zip(&sig.inputs)
+        .filter_map(|(kind, arg)| {
+            if matches!(kind, ArgKind::Regular { .. }) {
+                if let FnArg::Typed(arg) = arg {
+                    Some(&arg.pat)
+                } else {
+                    unreachable!("regular arguments should always be FnArg::Typed")
+                }
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let is_async = export_args.is_async || sig.asyncness.is_some();
+
+    let mut receiver = None;
+    let mut maybe_extract_base = None;
+
+    let invoke_arg_list = arg_kind
+        .iter()
+        .zip(&sig.inputs)
+        .map(|(kind, arg)| match kind {
+            ArgKind::Receiver => {
+                receiver = Some(match arg {
+                    FnArg::Receiver(syn::Receiver {
+                        reference: Some(_),
+                        mutability,
+                        ..
+                    }) => parse_quote! {
+                        & #mutability #class_name
+                    },
+                    FnArg::Receiver(syn::Receiver {
+                        reference: None, ..
+                    }) => parse_quote! {
+                        #class_name
+                    },
+                    FnArg::Typed(syn::PatType { ty, .. }) => *ty.clone(),
+                });
+
+                Ok(quote_spanned! { sig_span => __rust_val })
+            }
+            ArgKind::Base => {
+                maybe_extract_base =
+                    Some(quote_spanned! { sig_span => let __base = __this.base(); });
+                Ok(quote_spanned! { sig_span => OwnerArg::from_safe_ref(__base) })
+            }
+            ArgKind::AsyncCtx => Ok(quote_spanned! { sig_span => __ctx }),
+            ArgKind::Regular { .. } => match arg {
+                FnArg::Receiver(_) => {
+                    unreachable!("receivers cannot be regular arguments")
+                }
+                FnArg::Typed(arg) => {
+                    let pat = &arg.pat;
+                    Ok(quote_spanned! { sig_span => #pat })
+                }
+            },
+        })
+        .collect::<Result<Vec<_>, syn::Error>>()?;
+
+    let recover = if export_args.is_deref_return {
+        quote_spanned! { ret_span => std::ops::Deref::deref(&ret) }
+    } else {
+        quote_spanned! { ret_span => ret }
+    };
+
+    let impl_body = if is_async {
+        let gdnative_async = crate::crate_gdnative_async();
+
+        let body = wrap_maybe_receiver(
+            receiver.as_ref(),
+            sig_span,
+            quote_spanned! { sig_span =>
+                let Args { #(#destructure_arg_list,)* __generic_marker } = __args;
+
+                #[allow(unused_unsafe)]
+                unsafe {
+                    Some(<#class_name>::#method_name(
+                        #(#invoke_arg_list,)*
+                    ))
+                }
+            },
+            quote_spanned! { sig_span => None },
+        );
+
+        quote_spanned! { sig_span =>
+            #automatically_derived
+            impl #impl_generics #gdnative_async::StaticArgsAsyncMethod<#class_name> for ThisMethod #ty_generics #where_clause {
+                type Args = Args #ty_generics;
+
+                fn spawn_with(
+                    &self,
+                    __spawner: #gdnative_async::Spawner::<'_, #class_name, Self::Args>,
+                ) {
+                    __spawner.spawn(move |__ctx, __this, __args| {
+                        #maybe_extract_base
+                        let __future = #body;
+
+                        async move {
+                            if let Some(__future) = __future {
+                                let ret = __future.await;
+                                #gdnative_core::core_types::OwnedToVariant::owned_to_variant(#recover)
+                            } else {
+                                #gdnative_core::core_types::Variant::nil()
+                            }
+                        }
+                    });
+                }
+
+                fn site() -> Option<#gdnative_core::log::Site<'static>> {
+                    Some(#gdnative_core::godot_site!(#class_name::#method_name))
+                }
+            }
+
+            #gdnative_async::Async::new(#gdnative_async::StaticArgs::new(ThisMethod #turbofish_ty_generics {
+                _marker: #generic_marker_ctor,
+            }))
+        }
+    } else {
+        let body = wrap_maybe_receiver(
+            receiver.as_ref(),
+            sig_span,
+            quote_spanned! { sig_span =>
+                #[allow(unused_unsafe)]
+                unsafe {
+                    let ret = <#class_name>::#method_name(
+                        #(#invoke_arg_list,)*
+                    );
+                    #gdnative_core::core_types::OwnedToVariant::owned_to_variant(#recover)
+                }
+            },
+            quote_spanned! { sig_span => #gdnative_core::core_types::Variant::nil() },
+        );
+
+        quote_spanned! { sig_span =>
+            #automatically_derived
+            impl #impl_generics #gdnative_core::export::StaticArgsMethod<#class_name> for ThisMethod #ty_generics #where_clause {
+                type Args = Args #ty_generics;
+                fn call(
+                    &self,
+                    __this: TInstance<'_, #class_name, #gdnative_core::object::ownership::Shared>,
+                    Args { #(#destructure_arg_list,)* __generic_marker }: Self::Args,
+                ) -> #gdnative_core::core_types::Variant {
+                    #maybe_extract_base
+                    #body
+                }
+
+                fn site() -> Option<#gdnative_core::log::Site<'static>> {
+                    Some(#gdnative_core::godot_site!(#class_name::#method_name))
+                }
+            }
+
+            #gdnative_core::export::StaticArgs::new(ThisMethod #turbofish_ty_generics {
+                _marker: #generic_marker_ctor,
+            })
+        }
+    };
+
+    // Necessary standard traits have to be implemented manually because the default derive isn't smart enough.
+    let output = quote_spanned! { sig_span =>
+        {
+            struct ThisMethod #ty_generics #where_clause {
+                _marker: #generic_marker_decl,
+            }
+
+            impl #impl_generics Copy for ThisMethod #ty_generics #where_clause {}
+            impl #impl_generics Clone for ThisMethod #ty_generics #where_clause {
+                fn clone(&self) -> Self {
+                    *self
+                }
+            }
+
+            impl #impl_generics Default for ThisMethod #ty_generics #where_clause {
+                fn default() -> Self {
+                    Self {
+                        _marker: #generic_marker_ctor,
+                    }
+                }
+            }
+
+            unsafe impl #impl_generics Send for ThisMethod #ty_generics #where_clause {}
+            unsafe impl #impl_generics Sync for ThisMethod #ty_generics #where_clause {}
+
+            use #gdnative_core::export::{NativeClass, OwnerArg};
+            use #gdnative_core::object::{Instance, TInstance};
+            use #gdnative_core::derive::FromVarargs;
+
+            #[derive(FromVarargs)]
+            #automatically_derived
+            struct Args #ty_generics #where_clause {
+                #(#declare_arg_list,)*
+
+                #[skip]
+                __generic_marker: #generic_marker_decl,
+            }
+
+            #impl_body
+        }
+    };
+
+    Ok(output)
 }
